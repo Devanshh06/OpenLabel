@@ -126,12 +126,19 @@ async def scan_image(
         retail_price=request.retail_price,
     )
 
-    report, raw_text_extracted = await analyze_image(
-        image_base64=request.image_base64,
-        product_name=request.product_name,
-        retail_price=request.retail_price,
-        osint_context=osint_context,
-    )
+    try:
+        report, raw_text_extracted = await analyze_image(
+            image_base64=request.image_base64,
+            product_name=request.product_name,
+            retail_price=request.retail_price,
+            osint_context=osint_context,
+        )
+    except Exception as e:
+        logger.exception("scan_image failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"scan_image failed: {type(e).__name__}: {e}",
+        )
 
     product_name = request.product_name
     fssai_candidate = _extract_candidate_fssai_14(raw_text_extracted)
@@ -192,13 +199,20 @@ async def scan_dual_image(
         retail_price=request.retail_price,
     )
 
-    report, raw_text_extracted = await analyze_dual_images(
-        front_image_base64=request.front_image_base64,
-        back_image_base64=request.back_image_base64,
-        product_name=request.product_name,
-        retail_price=request.retail_price,
-        osint_context=osint_context,
-    )
+    try:
+        report, raw_text_extracted = await analyze_dual_images(
+            front_image_base64=request.front_image_base64,
+            back_image_base64=request.back_image_base64,
+            product_name=request.product_name,
+            retail_price=request.retail_price,
+            osint_context=osint_context,
+        )
+    except Exception as e:
+        logger.exception("scan_dual_image failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"scan_dual_image failed: {type(e).__name__}: {e}",
+        )
 
     product_name = request.product_name
     fssai_candidate = _extract_candidate_fssai_14(raw_text_extracted)
@@ -271,12 +285,19 @@ async def scan_link(
         retail_price=scraped.price,
     )
 
-    report, _ = await analyze_text(
-        extracted_text=extracted_text,
-        product_name=scraped.product_name,
-        retail_price=scraped.price,
-        osint_context=osint_context,
-    )
+    try:
+        report, _ = await analyze_text(
+            extracted_text=extracted_text,
+            product_name=scraped.product_name,
+            retail_price=scraped.price,
+            osint_context=osint_context,
+        )
+    except Exception as e:
+        logger.exception("scan_link failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"scan_link failed: {type(e).__name__}: {e}",
+        )
 
     product_name = scraped.product_name
     fssai_candidate = scraped.fssai_number or _extract_candidate_fssai_14(extracted_text)

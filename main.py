@@ -222,8 +222,10 @@ async def demo_page():
           })
         });
 
-        const json = await res.json().catch(() => ({}));
-        out.textContent = JSON.stringify({http_status: res.status, response: json}, null, 2);
+        const raw = await res.text().catch(() => "");
+        let json = null;
+        try { json = JSON.parse(raw); } catch (e) {}
+        out.textContent = JSON.stringify({http_status: res.status, response: json ?? raw}, null, 2);
       }
 
       async function analyzeDual() {
@@ -254,8 +256,10 @@ async def demo_page():
           })
         });
 
-        const json = await res.json().catch(() => ({}));
-        out.textContent = JSON.stringify({http_status: res.status, response: json}, null, 2);
+        const raw = await res.text().catch(() => "");
+        let json = null;
+        try { json = JSON.parse(raw); } catch (e) {}
+        out.textContent = JSON.stringify({http_status: res.status, response: json ?? raw}, null, 2);
       }
     </script>
   </body>

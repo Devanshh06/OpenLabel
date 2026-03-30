@@ -1,0 +1,311 @@
+OpenLabel Backend Integration Notes (Member 2 Adapter + Member 3 AI Logic)
+================================================================================
+
+1) What we accomplished
+-----------------------
+We integrated your existing “Member 2” FastAPI backend with “Member 3” AI logic in `ai_logic/`
+WITHOUT modifying any business logic inside `ai_logic/`.
+
+Key improvements delivered:
+- Member 3 pipeline is now the source of truth for analysis:
+  - OCR (single-image via Gemini Vision; dual-image via Member 3 OCR adapter)
+  - Live OSINT context enrichment
+  - OFF (Open Food Facts) ingredient enrichment (handled inside `ai_logic/llm_service.py`)
+  - Gemini structured JSON output parsing into a richer schema
+- API response changes to match Member 3 output:
+  - `trust_score` is now a float (0–100)
+  - `trust_level` is added as derived backward-compatible RED/YELLOW/GREEN
+  - flags are now richer objects: `{code, title, severity, evidence, rationale}`
+- Added a new endpoint for the full front+back flow:
+  - `POST /api/v1/scan/dual-image`
+- Backend is hosted-ready (Render-friendly):
+  - updated `requirements.txt` for Member 3 + Vision/OCR dependencies
+  - updated `.env.example` with Member 3 optional env vars
+- Demo webpage:
+  - `GET /demo` provides a simple browser UI for manual testing
+
+2) Important integration details (trust score + flags)
+----------------------------------------------------------
+Trust score mapping (implemented in `services/ai_engine.py`):
+- `0–40`   => `trust_level = "RED"`
+- `41–70`  => `trust_level = "YELLOW"`
+- `71–100` => `trust_level = "GREEN"`
+
+Flags schema mapping:
+- Backend `models/schemas.py` now expects flags in the Member 3 style:
+  - `code` (stable identifier)
+  - `title`
+  - `severity` ("low" | "medium" | "high")
+  - `evidence`
+  - `rationale`
+
+Note: Some older fields like `category` are no longer present in the API response.
+
+3) Code changes overview (files created/updated)
+---------------------------------------------------
+3.1 ai_logic untouched
+- The entire `ai_logic/` folder remains unchanged in behavior and logic.
+- We only added `ai_logic/__init__.py` so it is reliably importable as a Python package.
+
+3.2 Adapter layer (new integration glue)
+- `services/ai_engine.py`
+  - Thin adapter around `ai_logic/llm_service.analyze_product()`
+  - Implements:
+    - `analyze_image()`:
+      1) Gemini Vision extracts raw text from the single image (base64 -> OCR text)
+      2) Member 3 `analyze_product(raw_text, osint_data)` returns structured results
+    - `analyze_text()`:
+      - Calls Member 3 directly with `raw_text` + `osint_data` dict
+    - `analyze_dual_images()`:
+      - Tries Member 3 OCR adapter (`services/vision.py` -> `ai_logic/vision_service.py`)
+      - If Member 3 OCR fails (common when GCP creds/Tesseract aren’t installed),
+        it falls back to Gemini Vision OCR (front + back), then continues the pipeline
+  - Also includes:
+    - robust MIME inference for images (fixes “Unsupported MIME type: png”)
+    - `trust_level_from_score()` mapping (float -> RED/YELLOW/GREEN)
+
+- `services/osint_data.py`
+  - Adapter that returns one OSINT `dict` compatible with `ai_logic/llm_service.analyze_product()`
+  - Composition:
+    - Live OSINT context via `ai_logic/osint_service.get_local_context()`
+    - Static wholesale fallback enrichment using `data/wholesale_prices.json` (Member 2 data)
+  - Returns merged fields like:
+    - `agmarknet_wholesale_price`, `local_weather`, `fssai_news_scraper`, etc.
+
+- `services/vision.py` (new)
+  - Thin wrapper around `ai_logic/vision_service.extract_text_from_images()`
+  - Accepts front/back base64 strings, decodes them to bytes, returns a single OCR text blob
+
+3.3 API schema updates
+- `models/schemas.py`
+  - Updated `FlagItem` fields to Member 3 richer flag schema
+  - Updated `ScanResponse.trust_score` to float
+  - Added `ScanResponse.trust_level`
+  - Added request model `ScanDualImageRequest` for:
+    - `front_image_base64`
+    - `back_image_base64`
+
+- `models/ai_schemas.py`
+  - Re-exported Member 3 structured output types to keep older imports from breaking.
+  - The adapter now uses Member 3 directly, but this keeps the codebase consistent.
+
+3.4 Router updates
+- `routers/scan.py`
+  - `POST /api/v1/scan/image`
+    - Single image:
+      - OSINT dict from `services/osint_data.get_osint_context()`
+      - OCR text extraction via Gemini vision in `services/ai_engine.analyze_image()`
+      - Member 3 analysis via `services/ai_engine` adapter
+      - Converts Member 3 flags -> API `FlagItem`
+      - Stores scan in Supabase (`scans` table)
+  - `POST /api/v1/scan/dual-image` (new)
+    - Front+back flow:
+      - OSINT dict
+      - OCR:
+        - Member 3 OCR adapter
+        - fallback to Gemini OCR if OCR adapter fails
+      - Member 3 analysis, then store+return
+  - `POST /api/v1/scan/link`
+    - Existing flow kept:
+      - scraper extracts page text
+      - OSINT dict
+      - Member 3 analysis via adapter
+
+- `routers/reports.py`
+  - Updated mapping for:
+    - `trust_score` as float
+    - `trust_level`
+  - Reads `trust_level` for filtering (RED/YELLOW/GREEN)
+  - Parses `full_report.flags` into the new richer `FlagItem`
+
+3.5 Demo UI
+- `main.py`:
+  - added `GET /demo` which serves an embedded HTML page
+  - lets you upload images in browser and calls:
+    - `/api/v1/scan/image` or `/api/v1/scan/dual-image`
+
+3.6 DB schema update
+- `supabase_setup.sql`
+  - Updated `scans` table to support:
+    - `trust_score NUMERIC`
+    - `trust_level TEXT` with CHECK ('RED','YELLOW','GREEN')
+    - `input_source` includes `'dual-image'`
+
+4) How the backend processes a scan (end-to-end)
+--------------------------------------------------
+4.1 Single image flow: POST `/api/v1/scan/image`
+1) Flutter sends:
+   - `image_base64` (recommended format: `data:image/<type>;base64,<...>`)
+   - optional `product_name`
+   - optional `retail_price`
+2) Backend:
+   - builds OSINT dict via `services/osint_data.get_osint_context()`
+   - extracts raw label text using Gemini Vision OCR in `services/ai_engine`
+   - calls Member 3 `ai_logic/llm_service.analyze_product(raw_text, osint_dict)`
+   - returns `ScanResponse`:
+     - `trust_score` float (0–100)
+     - `trust_level` derived
+     - `flags[]` richer schema
+
+4.2 Dual image flow: POST `/api/v1/scan/dual-image`
+1) Flutter sends:
+   - `front_image_base64`
+   - `back_image_base64`
+   - optional `product_name`, `retail_price`
+2) Backend:
+   - builds OSINT dict
+   - OCR:
+     - tries Member 3 OCR (`ai_logic/vision_service.py`) through `services/vision.py`
+     - if OCR fails due to missing GCP creds or missing Tesseract,
+       the adapter falls back to Gemini Vision OCR
+   - runs Member 3 analysis on the combined raw OCR text
+   - returns the same `ScanResponse` structure
+
+5) API Endpoints (used by Flutter)
+------------------------------------
+All scan routes are under:
+  /api/v1
+
+5.1 POST `/api/v1/scan/image`
+Request body (JSON):
+{
+  "image_base64": "data:image/png;base64,....",
+  "product_name": "optional string",
+  "retail_price": 60.0
+}
+
+Response (`ScanResponse`):
+- `scan_id` (string)
+- `product_name` (nullable)
+- `trust_score` (float 0–100)
+- `trust_level` ("RED"|"YELLOW"|"GREEN")
+- `overall_verdict` (string)
+- `flags[]`:
+  {
+    "code": "...",
+    "title": "...",
+    "severity": "low|medium|high",
+    "evidence": "...",
+    "rationale": "..."
+  }
+- `upf_score` (currently null)
+- `fssai_number` (nullable string)
+- `legal_draft_available` (bool)
+- `legal_draft_text` (nullable string)
+
+5.2 POST `/api/v1/scan/dual-image` (new)
+Request body:
+{
+  "front_image_base64": "data:image/png;base64,....",
+  "back_image_base64": "data:image/png;base64,....",
+  "product_name": "optional string",
+  "retail_price": 60.0
+}
+
+5.3 POST `/api/v1/scan/link`
+{
+  "url": "https://..."
+}
+
+5.4 GET `/api/v1/reports`
+- Requires authentication (existing Supabase auth flow in your repo)
+
+5.5 GET `/api/v1/reports/{scan_id}`
+- Requires authentication
+
+6) Setup Instructions (Backend)
+---------------------------------
+6.1 Local run (for development)
+1) Install Python dependencies:
+   - `pip install -r requirements.txt`
+2) Create `.env` by copying `.env.example`:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `GEMINI_API_KEY`
+   Optional:
+   - `GEMINI_MODEL`
+   - `GOOGLE_APPLICATION_CREDENTIALS` (needed only if you want Member 3 OCR to use Google Cloud Vision)
+   - `OPENLABEL_SKIP_VISION` (forces Member 3 vision_service to skip GCP Vision and use Tesseract)
+   - `TESSERACT_CMD` (if using Tesseract fallback)
+   - `DATA_GOV_IN_API_KEY`, `DATA_GOV_IN_RESOURCE_ID` (for extra data.gov.in enrichment)
+3) Create DB table using Supabase SQL:
+   - open Supabase SQL editor
+   - run `supabase_setup.sql`
+4) Start server:
+   - `uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+
+6.2 Hosting on Render (production-like)
+Render steps (typical):
+1) Create a Render Web Service from this repo
+2) Set Start Command to something like:
+   - `uvicorn main:app --host 0.0.0.0 --port $PORT`
+3) Build Command (if needed):
+   - `pip install -r requirements.txt`
+4) Set environment variables in Render Dashboard:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `GEMINI_API_KEY`
+   - `CORS_ORIGINS` (set to your Flutter web domain(s) or `*` for testing)
+   - Optional:
+     - `GEMINI_MODEL`
+     - `GOOGLE_APPLICATION_CREDENTIALS` (if you want GCP Vision path)
+     - `OPENLABEL_SKIP_VISION` / `TESSERACT_CMD` (if using Tesseract fallback)
+
+Important Render note:
+- If you are not using Member 3 OCR (GCP Vision) and Tesseract is unavailable,
+  the dual-image endpoint should still work via Gemini fallback OCR (implemented in `services/ai_engine.py`).
+
+7) Setup Instructions (Flutter)
+---------------------------------
+7.1 Base URL configuration
+In Flutter, point to your Render host:
+Example:
+- `BACKEND_BASE_URL = "https://<your-render-url>"`
+
+Then call:
+- `${BACKEND_BASE_URL}/api/v1/scan/image`
+- `${BACKEND_BASE_URL}/api/v1/scan/dual-image`
+- `${BACKEND_BASE_URL}/api/v1/scan/link`
+
+7.2 Encoding images for request
+The backend supports:
+- `data:image/<type>;base64,<...>` (recommended)
+- and also raw base64 in some cases (we added signature-based inference)
+
+In Flutter:
+- read bytes from picked/captured image
+- base64 encode
+- preferably include `data:image/png;base64,` prefix if you know the type
+
+7.3 Request timeouts
+Gemini calls + OSINT calls can take a while.
+Set Flutter HTTP timeout to something like 60–120 seconds for first tests.
+
+7.4 Expected response parsing
+Update your Flutter models to reflect:
+- `trust_score` float
+- `trust_level` string
+- flags with `{code,title,severity,evidence,rationale}`
+
+7.5 Auth for reports screen (if used)
+Your `reports` endpoints require authentication through Supabase.
+If your Flutter app uses Supabase Auth, keep using the existing flow for listing reports.
+
+8) Demo page (manual verification)
+-----------------------------------
+While backend is running locally:
+- open `http://127.0.0.1:8001/demo` (or your port)
+- upload images
+- click Analyze
+
+The demo page just calls your API and prints JSON.
+
+9) Known limitations / notes
+------------------------------
+- `upf_score` is currently returned as `null` by the backend because Member 3’s returned schema
+  currently doesn’t provide a dedicated `upfScore` field in `ProductAnalysisResult`.
+- Dual-image OCR reliability depends on environment:
+  - If GCP creds are missing and Tesseract is not installed, the backend falls back to Gemini OCR.
+
