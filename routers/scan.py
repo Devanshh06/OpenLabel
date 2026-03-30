@@ -121,7 +121,7 @@ async def scan_image(
 ):
     logger.info("Image scan initiated | User: %s", user.id if user else "anonymous")
 
-    osint_context = get_osint_context(
+    osint_context = await get_osint_context(
         request.product_name,
         retail_price=request.retail_price,
     )
@@ -194,7 +194,7 @@ async def scan_dual_image(
 ):
     logger.info("Dual-image scan initiated | User: %s", user.id if user else "anonymous")
 
-    osint_context = get_osint_context(
+    osint_context = await get_osint_context(
         request.product_name,
         retail_price=request.retail_price,
     )
@@ -280,7 +280,7 @@ async def scan_link(
         )
 
     extracted_text = scraped.to_analysis_text()
-    osint_context = get_osint_context(
+    osint_context = await get_osint_context(
         scraped.product_name,
         retail_price=scraped.price,
     )

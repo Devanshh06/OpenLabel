@@ -268,11 +268,13 @@ def _fetch_data_gov_in_prices() -> dict[str, Any] | None:
         return {"ok": False, "error": str(e)}
 
 
-def get_local_context(product_name: str, location: str = "Nashik") -> dict[str, Any]:
+async def get_local_context(product_name: str, location: str = "Nashik") -> dict[str, Any]:
     """
     Fetch live context: geocoded weather, Google News (FSSAI-related), Agmarknet commodity match,
     optional data.gov.in mandi records (requires DATA_GOV_IN_API_KEY + DATA_GOV_IN_RESOURCE_ID).
+    (Made concurrent for performance)
     """
+    import asyncio
     fetched_at = datetime.now(timezone.utc).isoformat()
     sources: list[str] = ["open-meteo.com"]
 
@@ -285,25 +287,62 @@ def get_local_context(product_name: str, location: str = "Nashik") -> dict[str, 
         "source": "open-meteo.com",
     }
     try:
-        geo = _geocode_location(location)
-        if geo and geo.get("latitude") is not None:
-            label = geo.get("name") or location
-            weather = _fetch_weather(float(geo["latitude"]), float(geo["longitude"]), label)
-        else:
-            weather["error"] = f"Geocoding returned no results for {location!r}"
+        geo = await asyncio.to_thread(_geocode_location, location)
     except Exception as e:
         weather["error"] = str(e)
 
-    state_hint = (geo or {}).get("admin1")
-    news_block = _fetch_fssai_news_rss(location, state_hint)
+    label = location
+    state_hint = None
+    if geo and geo.get("latitude") is not None:
+        label = geo.get("name") or location
+        state_hint = geo.get("admin1")
+    else:
+        if not weather["error"]:
+            weather["error"] = f"Geocoding returned no results for {location!r}"
+
+    async def fetch_weather_task():
+        if geo and geo.get("latitude") is not None:
+            try:
+                return await asyncio.to_thread(_fetch_weather, float(geo["latitude"]), float(geo["longitude"]), label)
+            except Exception as e:
+                weather_copy = weather.copy()
+                weather_copy["error"] = str(e)
+                return weather_copy
+        return weather
+
+    async def fetch_news_task():
+        try:
+            return await asyncio.to_thread(_fetch_fssai_news_rss, location, state_hint)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "items": []}
+
+    async def fetch_commodity_task():
+        try:
+            return await asyncio.to_thread(_fetch_commodity_match, product_name)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "best_match": None}
+
+    async def fetch_dg_task():
+        try:
+            return await asyncio.to_thread(_fetch_data_gov_in_prices)
+        except Exception as e:
+            return None
+
+    weather_res, news_block, commodity, dg = await asyncio.gather(
+        fetch_weather_task(),
+        fetch_news_task(),
+        fetch_commodity_task(),
+        fetch_dg_task()
+    )
+
+    weather = weather_res
+
     if news_block.get("ok"):
         sources.append("news.google.com (RSS)")
 
-    commodity = _fetch_commodity_match(product_name)
     if commodity.get("ok"):
         sources.append("api.agmarknet.gov.in/v1/commodities")
 
-    dg = _fetch_data_gov_in_prices()
     if dg:
         sources.append("api.data.gov.in")
 

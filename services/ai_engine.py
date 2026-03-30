@@ -259,22 +259,32 @@ async def analyze_dual_images(
         back_mime = _infer_image_mime_type_from_bytes(back_bytes, default=back_mime)
 
         model_id = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
-        front_text = await asyncio.to_thread(
-            _extract_raw_text_from_image_bytes,
-            front_bytes,
-            model_id=model_id,
-            mime_type=front_mime,
+        
+        def _extract_both(f_bytes, f_mime, b_bytes, b_mime):
+            genai.configure(api_key=_gemini_api_key())
+            model = genai.GenerativeModel(
+                model_id,
+                system_instruction=(
+                    "You are an expert food label OCR assistant for India. "
+                    "Extract all visible text from the provided front and back label images. "
+                    "Clearly section your output with '=== FRONT LABEL ===' and '=== BACK LABEL (INGREDIENTS / NUTRITION) ==='. "
+                    "Return ONLY the raw text (no analysis, no JSON, no markdown fences). "
+                    "Preserve line breaks as much as possible."
+                ),
+            )
+            prompt = "Extract all visible label text from these images. The first image is the front, the second is the back."
+            contents = [
+                prompt,
+                {"inline_data": {"mime_type": f_mime, "data": f_bytes}},
+                {"inline_data": {"mime_type": b_mime, "data": b_bytes}},
+            ]
+            generation_config = GenerationConfig(temperature=0.2)
+            resp = model.generate_content(contents, generation_config=generation_config)
+            return _response_text(resp)
+            
+        raw_text_extracted = await asyncio.to_thread(
+            _extract_both, front_bytes, front_mime, back_bytes, back_mime
         )
-        back_text = await asyncio.to_thread(
-            _extract_raw_text_from_image_bytes,
-            back_bytes,
-            model_id=model_id,
-            mime_type=back_mime,
-        )
-        raw_text_extracted = (
-            "=== FRONT LABEL ===\n" + (front_text or "").strip()
-            + "\n\n=== BACK LABEL (INGREDIENTS / NUTRITION) ===\n" + (back_text or "").strip()
-        ).strip()
 
     osint_data = osint_context or {}
     osint_data = dict(osint_data)

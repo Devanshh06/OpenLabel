@@ -344,18 +344,10 @@ def analyze_product(
     genai.configure(api_key=_gemini_api_key())
     model_id = model_name or os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
 
-    # Enrich osint_data with OFF ingredient ontology (best-effort; failures should not prevent analysis).
-    osint_data_enriched = dict(osint_data)
-    try:
-        extracted = _extract_ingredients_with_gemini(raw_text, model_id=model_id)
-        osint_data_enriched["open_food_facts_ingredients"] = _enrich_ingredients_with_off(
-            extracted
-        )
-    except Exception:
-        # If ingredient extraction or OFF enrichment fails, proceed with original osint_data.
-        pass
+    # We skip OFF ingredient extraction and enrichment completely to save tokens and time.
+    # The main Gemini prompt will analyze UPFs and split ingredients directly from the OCR text.
 
-    osint_json = json.dumps(osint_data_enriched, ensure_ascii=False, indent=2)
+    osint_json = json.dumps(osint_data, ensure_ascii=False, indent=2)
     system_instruction = MASTER_SYSTEM_PROMPT_TEMPLATE.format(
         raw_text=raw_text or "(empty)",
         osint_data=osint_json,

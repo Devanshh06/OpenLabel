@@ -85,10 +85,10 @@ def _get_static_wholesale_context(product_name: str) -> dict[str, Any]:
     }
 
 
-def get_live_osint_context(product_name: str, *, location: str = "Nashik") -> dict[str, Any]:
+async def get_live_osint_context(product_name: str, *, location: str = "Nashik") -> dict[str, Any]:
     """Fetch live context using Member 3 OSINT. Never raise; always return a dict."""
     try:
-        return _member3_get_local_context(product_name=product_name, location=location)
+        return await _member3_get_local_context(product_name=product_name, location=location)
     except Exception as e:
         logger.error("Live OSINT failed: %s", e)
         fetched_at = datetime.now(timezone.utc).isoformat()
@@ -113,7 +113,7 @@ def get_live_osint_context(product_name: str, *, location: str = "Nashik") -> di
         }
 
 
-def get_osint_context(
+async def get_osint_context(
     product_name: Optional[str] = None,
     *,
     retail_price: Optional[float] = None,
@@ -130,7 +130,7 @@ def get_osint_context(
     pn = (product_name or "").strip()
     pn = pn if pn else "food"
 
-    osint = get_live_osint_context(pn, location=location)
+    osint = await get_live_osint_context(pn, location=location)
     static_ctx = _get_static_wholesale_context(pn)
 
     # Normalize expected structure for the Member 3 master prompt.
