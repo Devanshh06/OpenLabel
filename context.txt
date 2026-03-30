@@ -1,0 +1,629 @@
+================================================================================
+                    OPENLABEL — BACKEND CONTEXT FILE
+                  For Flutter Frontend Development Reference
+================================================================================
+
+Generated: March 2026
+Purpose: This file documents the complete OpenLabel backend codebase so that
+         the Flutter frontend team (Member 1) can integrate seamlessly.
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+OpenLabel is a consumer OSINT (Open-Source Intelligence) platform that unmasks
+deceptive food labeling practices in India. It analyzes food product labels
+using AI-powered forensic analysis to detect health-washing, sugar splitting,
+economic fraud, and FSSAI compliance violations.
+
+Architecture:
+  Flutter App (Member 1) ↔ FastAPI Backend (Member 2) ↔ Gemini AI (Member 3) ↔ Supabase
+
+The backend serves as the "Engine Room" — a FastAPI server that:
+  • Accepts food label images (base64) or e-commerce URLs from the Flutter app
+  • Processes them through Google Gemini 2.0 Flash AI
+  • Enriches analysis with OSINT wholesale price data
+  • Validates FSSAI license numbers
+  • Stores all scan results in Supabase PostgreSQL
+  • Returns structured JSON reports to the Flutter app
+
+================================================================================
+2. TECH STACK
+================================================================================
+
+Language:      Python 3.10+
+Framework:     FastAPI (v0.115+)
+Server:        Uvicorn (ASGI)
+Database:      Supabase (PostgreSQL + Auth + Row Level Security)
+AI Engine:     Google Gemini 2.0 Flash (via google-genai SDK)
+HTTP Client:   httpx (async)
+Web Scraping:  BeautifulSoup4 + lxml
+Validation:    Pydantic v2 + pydantic-settings
+Auth:          JWT-based via Supabase Auth
+
+Key Dependencies (requirements.txt):
+  - fastapi>=0.115.0
+  - uvicorn[standard]>=0.34.0
+  - supabase>=2.12.0
+  - pydantic>=2.10.0
+  - pydantic-settings>=2.7.0
+  - google-genai>=1.5.0
+  - httpx>=0.28.0
+  - beautifulsoup4>=4.12.0
+  - lxml>=5.3.0
+  - python-dotenv>=1.0.0
+  - python-multipart>=0.0.18
+
+================================================================================
+3. PROJECT STRUCTURE
+================================================================================
+
+OpenLabel-backend/
+├── main.py                    # FastAPI app entry point, CORS, router registration
+├── config.py                  # Environment variable loading via pydantic-settings
+├── database.py                # Supabase client initialization (admin + public)
+├── auth.py                    # JWT authentication (required + optional)
+├── requirements.txt           # Python dependencies
+├── supabase_setup.sql         # Complete database schema, RLS policies, triggers
+├── .env.example               # Environment variable template
+├── .env                       # Actual credentials (not committed)
+│
+├── models/
+│   ├── __init__.py
+│   ├── schemas.py             # API request/response Pydantic models
+│   └── ai_schemas.py          # AI structured output schemas + system prompt
+│
+├── routers/
+│   ├── __init__.py
+│   ├── scan.py                # /api/v1/scan/* endpoints (image + link analysis)
+│   ├── reports.py             # /api/v1/reports/* endpoints (scan history)
+│   └── users.py               # /api/v1/profile/* endpoints (user preferences)
+│
+├── services/
+│   ├── __init__.py
+│   ├── ai_engine.py           # Gemini 2.0 Flash integration (vision + text)
+│   ├── scraper.py             # Multi-site e-commerce scraper
+│   ├── fssai_validator.py     # FSSAI 14-digit license number validator
+│   └── osint_data.py          # Wholesale price OSINT data service
+│
+└── data/
+    └── wholesale_prices.json  # 20 Indian commodity wholesale prices
+
+================================================================================
+4. ENVIRONMENT VARIABLES
+================================================================================
+
+The backend requires the following environment variables in .env:
+
+  SUPABASE_URL              — Supabase project URL
+  SUPABASE_ANON_KEY         — Supabase anon/public key (for RLS-aware queries)
+  SUPABASE_SERVICE_ROLE_KEY — Supabase service role key (bypasses RLS)
+  GEMINI_API_KEY            — Google Gemini API key
+  APP_HOST                  — Server host (default: 0.0.0.0)
+  APP_PORT                  — Server port (default: 8000)
+  APP_DEBUG                 — Debug/reload mode (default: false)
+  CORS_ORIGINS              — Comma-separated allowed origins (default: *)
+
+================================================================================
+5. AUTHENTICATION SYSTEM
+================================================================================
+
+Authentication is handled via Supabase Auth with JWT tokens.
+
+The Flutter app must:
+  1. Sign up / Sign in users via Supabase Auth SDK (client-side)
+  2. Obtain the JWT access token from the Supabase session
+  3. Pass it as a Bearer token in the Authorization header:
+     Authorization: Bearer <supabase_jwt_access_token>
+
+Backend Auth Dependencies:
+  • get_current_user   — REQUIRED auth. Returns user object or raises 401.
+  • get_optional_user  — OPTIONAL auth. Returns user or None (for anonymous scans).
+
+Scan endpoints use OPTIONAL auth (anonymous scans allowed).
+Reports and Profile endpoints use REQUIRED auth.
+
+================================================================================
+6. API ENDPOINTS — COMPLETE REFERENCE
+================================================================================
+
+Base URL: http://<host>:8000/api/v1
+
+────────────────────────────────────────────────────────────────────────────────
+6.1 HEALTH CHECK
+────────────────────────────────────────────────────────────────────────────────
+
+  GET /
+  GET /health
+  
+  Response (HealthResponse):
+  {
+    "status": "healthy",
+    "service": "OpenLabel Engine Room",
+    "version": "1.0.0",
+    "docs": "/docs"
+  }
+  
+  Auth: None required
+
+────────────────────────────────────────────────────────────────────────────────
+6.2 SCAN — IMAGE ANALYSIS
+────────────────────────────────────────────────────────────────────────────────
+
+  POST /api/v1/scan/image
+  
+  Auth: Optional (Bearer token). Scans work without login.
+        If authenticated, scan is saved to the user's history.
+  
+  Request Body (ScanImageRequest):
+  {
+    "image_base64": "<base64-encoded-image-string>",   // REQUIRED
+    "product_name": "Patanjali Honey",                 // OPTIONAL
+    "retail_price": 250.0                              // OPTIONAL (INR)
+  }
+  
+  Response Body (ScanResponse):
+  {
+    "scan_id": "uuid-string",
+    "product_name": "Patanjali Honey",
+    "trust_score": "RED" | "YELLOW" | "GREEN",
+    "overall_verdict": "Short summary of findings...",
+    "flags": [
+      {
+        "title": "Sugar Splitting Detected",
+        "description": "Multiple sugar variants found...",
+        "category": "Sugar" | "Legal" | "OSINT" | "UPF" | "FSSAI"
+      }
+    ],
+    "upf_score": 7,                                    // 1-10 scale, nullable
+    "fssai_number": "10123456789012",                  // nullable
+    "legal_draft_available": true,
+    "legal_draft_text": "Formal complaint text...",    // nullable
+    "created_at": "2026-03-30T12:00:00Z"               // nullable
+  }
+  
+  Flow:
+    1. Flutter sends base64 image
+    2. Backend builds OSINT context (wholesale prices)
+    3. Image + context sent to Gemini 2.0 Flash Vision API
+    4. FSSAI number validated if extracted
+    5. Results stored in Supabase 'scans' table
+    6. Structured ScanResponse returned
+
+────────────────────────────────────────────────────────────────────────────────
+6.3 SCAN — LINK/URL ANALYSIS
+────────────────────────────────────────────────────────────────────────────────
+
+  POST /api/v1/scan/link
+  
+  Auth: Optional (Bearer token)
+  
+  Request Body (ScanLinkRequest):
+  {
+    "url": "https://www.bigbasket.com/pd/some-product"  // REQUIRED
+  }
+  
+  Response Body: Same ScanResponse as image scan
+  
+  Supported E-Commerce Sites:
+    • BigBasket     (bigbasket.com)
+    • Blinkit       (blinkit.com)
+    • Amazon India  (amazon.in / amazon.com)
+    • Flipkart      (flipkart.com)
+    • Any URL       (generic fallback parser)
+  
+  Flow:
+    1. Flutter sends product URL
+    2. Backend scrapes the page (httpx + BeautifulSoup)
+    3. Extracts: product name, brand, ingredients, nutrition, price, FSSAI, weight
+    4. Builds OSINT context
+    5. Scraped text sent to Gemini 2.0 Flash (text-mode)
+    6. FSSAI validated, results stored, response returned
+  
+  Error: Returns 422 if scraping completely fails.
+
+────────────────────────────────────────────────────────────────────────────────
+6.4 REPORTS — SCAN HISTORY LIST
+────────────────────────────────────────────────────────────────────────────────
+
+  GET /api/v1/reports
+  
+  Auth: REQUIRED (Bearer token)
+  
+  Query Parameters:
+    • page       — int, default 1 (min: 1)
+    • per_page   — int, default 20 (min: 1, max: 100)
+    • trust_score — optional filter: "RED", "YELLOW", or "GREEN"
+  
+  Response Body (ReportListResponse):
+  {
+    "total": 42,
+    "page": 1,
+    "per_page": 20,
+    "reports": [
+      {
+        "scan_id": "uuid",
+        "product_name": "Some Product",
+        "trust_score": "RED",
+        "overall_verdict": "Short summary...",
+        "input_source": "image" | "link",
+        "created_at": "2026-03-30T12:00:00Z"
+      }
+    ]
+  }
+  
+  Notes:
+    - Sorted by most recent first
+    - Only returns scans belonging to the authenticated user
+    - Pagination is offset-based
+
+────────────────────────────────────────────────────────────────────────────────
+6.5 REPORTS — SINGLE REPORT DETAIL
+────────────────────────────────────────────────────────────────────────────────
+
+  GET /api/v1/reports/{scan_id}
+  
+  Auth: REQUIRED (Bearer token)
+  
+  Response Body (ReportDetailResponse — extends ScanResponse):
+  {
+    "scan_id": "uuid",
+    "product_name": "...",
+    "trust_score": "RED",
+    "overall_verdict": "...",
+    "flags": [...],
+    "upf_score": 7,
+    "fssai_number": "...",
+    "legal_draft_available": true,
+    "legal_draft_text": "...",
+    "created_at": "...",
+    "raw_text_extracted": "...",     // additional field
+    "input_source": "image|link",   // additional field
+    "full_report": { ... }          // additional: raw Gemini JSON output
+  }
+  
+  Errors:
+    - 404 if scan not found or doesn't belong to the user
+
+────────────────────────────────────────────────────────────────────────────────
+6.6 USER PROFILE — GET
+────────────────────────────────────────────────────────────────────────────────
+
+  GET /api/v1/profile
+  
+  Auth: REQUIRED (Bearer token)
+  
+  Response Body (UserProfileResponse):
+  {
+    "user_id": "uuid",
+    "allergies": ["Peanuts", "Dairy"],     // string array
+    "preference_level": "Casual"            // "Strict" or "Casual"
+  }
+  
+  Notes:
+    - Profile is auto-created on user signup (via Supabase trigger)
+    - Default: empty allergies, "Casual" preference
+
+────────────────────────────────────────────────────────────────────────────────
+6.7 USER PROFILE — UPDATE
+────────────────────────────────────────────────────────────────────────────────
+
+  PUT /api/v1/profile
+  
+  Auth: REQUIRED (Bearer token)
+  
+  Request Body (UserProfileUpdate):
+  {
+    "allergies": ["Peanuts", "Gluten"],    // optional, replaces entire list
+    "preference_level": "Strict"           // optional, "Strict" or "Casual"
+  }
+  
+  Response: Same UserProfileResponse with updated values
+  
+  Notes:
+    - Uses upsert — creates profile if it doesn't exist
+    - Only non-null fields are updated
+
+================================================================================
+7. DATABASE SCHEMA (Supabase PostgreSQL)
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+Table: scans
+────────────────────────────────────────────────────────────────────────────────
+  id                  UUID PRIMARY KEY (auto-generated)
+  created_at          TIMESTAMPTZ (auto: now())
+  user_id             UUID (FK → auth.users, nullable for anonymous scans)
+  product_name        TEXT
+  input_source        TEXT CHECK ('image' | 'link')
+  raw_text_extracted  TEXT (scraped/OCR text, nullable)
+  trust_score         TEXT CHECK ('RED' | 'YELLOW' | 'GREEN')
+  full_report         JSONB (complete Gemini AI output)
+  fssai_number        VARCHAR(14)
+
+  Indexes:
+    - idx_scans_user_id        (user lookup)
+    - idx_scans_trust_score    (filter by trust score)
+    - idx_scans_created_at     (date sorting DESC)
+    - idx_scans_fssai          (FSSAI number lookup)
+    - idx_scans_user_date      (composite: user + date DESC)
+
+────────────────────────────────────────────────────────────────────────────────
+Table: user_profiles
+────────────────────────────────────────────────────────────────────────────────
+  id                  UUID PRIMARY KEY (FK → auth.users)
+  created_at          TIMESTAMPTZ (auto: now())
+  updated_at          TIMESTAMPTZ (auto-updated via trigger)
+  allergies           TEXT[] (string array, default: '{}')
+  preference_level    TEXT CHECK ('Strict' | 'Casual'), default: 'Casual'
+
+────────────────────────────────────────────────────────────────────────────────
+Row Level Security (RLS):
+────────────────────────────────────────────────────────────────────────────────
+  scans:
+    - Users can SELECT their own scans (user_id = auth.uid())
+    - Users can INSERT their own scans (or anonymous with user_id = NULL)
+    - Anonymous scans are not readable via client
+  
+  user_profiles:
+    - Users can SELECT, INSERT, UPDATE their own profile only
+
+────────────────────────────────────────────────────────────────────────────────
+Triggers:
+────────────────────────────────────────────────────────────────────────────────
+  - on_auth_user_created → auto-creates user_profiles row on signup
+  - set_updated_at       → auto-updates user_profiles.updated_at on update
+
+────────────────────────────────────────────────────────────────────────────────
+Dashboard Views (admin only):
+────────────────────────────────────────────────────────────────────────────────
+  - recent_scans_summary   — Last 100 scans with verdict + flag count
+  - trust_score_stats      — Trust score distribution + unique users
+  - most_flagged_products  — Products scanned >1 time, sorted by frequency
+
+================================================================================
+8. AI ENGINE — GEMINI 2.0 FLASH INTEGRATION
+================================================================================
+
+Model: gemini-2.0-flash
+SDK:   google-genai (Python)
+
+Two analysis modes:
+  1. analyze_image() — Uses Gemini Vision API with base64 image + text prompt
+  2. analyze_text()  — Uses Gemini text API with scraped product data
+
+Configuration:
+  - temperature: 0.2 (low for factual analysis)
+  - response_mime_type: "application/json"
+  - response_schema: OpenLabelReport (structured output enforcement)
+  - system_instruction: TECH_JUSTICE_SYSTEM_PROMPT
+
+The AI performs 6 analysis checks:
+  1. Ingredient Splitting — Detects split-sugar deception (multiple sugar types)
+  2. Economic Sniper      — Compares retail vs wholesale price for adulteration
+  3. FSSAI Compliance     — Validates 14-digit license format
+  4. UPF Risk             — Scores ultra-processed food additives (1-10)
+  5. Legal Compliance     — Checks FSSAI 2026 labeling requirements
+  6. Legal Draft          — Auto-generates "Jago Grahak Jago" complaint if RED
+
+AI Output Schema (OpenLabelReport):
+  {
+    "trustScore": "RED|YELLOW|GREEN",
+    "overallVerdict": "string",
+    "productName": "string|null",
+    "flags": [{"title": "...", "description": "...", "category": "..."}],
+    "upfScore": int|null (1-10),
+    "fssaiNumber": "string|null",
+    "legalDraftAvailable": bool,
+    "legalDraftText": "string|null"
+  }
+
+Flag Categories: Sugar, Legal, OSINT, UPF, FSSAI
+
+Error Handling: On Gemini failure, returns a YELLOW fallback report with error
+                message. The scan still succeeds — analysis is best-effort.
+
+================================================================================
+9. WEB SCRAPER — MULTI-SITE SUPPORT
+================================================================================
+
+The scraper extracts product data from Indian e-commerce sites.
+
+Supported Sites (with dedicated parsers):
+  • BigBasket  — Product name, brand, price, ingredients, FSSAI
+  • Blinkit    — Product name, ingredients, nutrition, price, FSSAI
+  • Amazon.in  — Title, brand, price, features, description, ingredients, FSSAI
+  • Flipkart   — Title, price, FSSAI
+  • Generic    — Fallback: h1/title, raw text, FSSAI, price
+
+Scraper Capabilities:
+  - Async HTTP with httpx (15s timeout)
+  - Browser-like User-Agent headers
+  - Follows redirects
+  - FSSAI regex extraction: /\b(\d{14})\b/
+  - Price regex extraction: /₹\s*([\d,]+(?:\.\d{2})?)/
+  - Structured ScrapedProduct dataclass output
+
+ScrapedProduct Fields:
+  - product_name, brand, ingredients, nutrition_info
+  - price (float, INR), weight, fssai_number
+  - description, source_url, raw_text, errors
+
+================================================================================
+10. FSSAI VALIDATOR SERVICE
+================================================================================
+
+Validates 14-digit FSSAI license numbers with structural decoding.
+
+Format: LLSSYYQQQNNNNNN
+  - L  (digit 1):     License type (1=Central, 2=State, 3=Registration)
+  - SS (digits 2-3):  State code (01-38, mapped to Indian states/UTs)
+  - YY (digits 4-5):  Year of license grant
+  - QQQ (digits 6-8): Quantity/category code
+  - NNNNNN (digits 9-14): Unique registration number
+
+Validation Checks:
+  1. Must be exactly 14 digits
+  2. License type must be 1, 2, or 3
+  3. State code must match known Indian state/UT
+  4. Year must be in reasonable range (2006-2030)
+
+Output (FSSAIValidationResult):
+  - is_valid, license_number, license_type, state, year_granted
+  - errors (list of validation failure messages)
+  - decoded_info (full breakdown dict)
+
+Covers all 38 Indian state/UT codes.
+
+================================================================================
+11. OSINT WHOLESALE PRICE DATA
+================================================================================
+
+Used for the "Economic Sniper" feature — detects products sold below raw
+material cost (indicating probable adulteration).
+
+Data Source: data/wholesale_prices.json
+  - 20 Indian food commodities with wholesale prices
+  - Sources: APMC Market Data, NCDEX, Indian Commodity Exchange
+  - Last updated: December 2025
+
+Commodities Covered:
+  Honey, Ghee (Cow/Buffalo), Olive Oil, Saffron, Coconut Oil, Mustard Oil,
+  Turmeric, Red Chilli, Black Pepper, Cumin, Basmati Rice, A2 Milk,
+  Almond, Cashew, Jaggery, Paneer, Tea, Coffee, Cinnamon
+
+Rule: If retail_price_per_kg < wholesale_price_per_kg → "Probable Adulteration"
+
+The OSINT context is formatted as a text string and passed to Gemini as part
+of the analysis prompt, so the AI can use it for economic fraud detection.
+
+================================================================================
+12. RUNNING THE BACKEND
+================================================================================
+
+Setup:
+  1. cd OpenLabel-backend
+  2. python -m venv .venv
+  3. .venv\Scripts\activate          (Windows)
+  4. pip install -r requirements.txt
+  5. cp .env.example .env            (fill in your keys)
+
+Run:
+  uvicorn main:app --reload --port 8000
+
+  OR: python main.py
+
+API Docs:
+  Swagger UI:  http://localhost:8000/docs
+  ReDoc:       http://localhost:8000/redoc
+
+================================================================================
+13. FLUTTER INTEGRATION GUIDE
+================================================================================
+
+What the Flutter app needs to implement:
+
+1. AUTHENTICATION (via Supabase Flutter SDK):
+   - Email/password signup + login
+   - Obtain JWT access token from Supabase session
+   - Store and refresh tokens
+   - Pass token in Authorization header for API calls
+
+2. IMAGE SCAN FLOW:
+   - Capture photo or pick from gallery
+   - Convert to base64 string
+   - POST to /api/v1/scan/image with base64 in body
+   - Optionally include product_name and retail_price
+   - Display the ScanResponse (trust score, flags, verdict, legal draft)
+
+3. LINK SCAN FLOW:
+   - Text input for URL or URL paste/share
+   - POST to /api/v1/scan/link with URL in body
+   - Display the same ScanResponse
+
+4. SCAN HISTORY:
+   - GET /api/v1/reports with auth token
+   - Paginated list with trust_score color coding
+   - Tap to GET /api/v1/reports/{scan_id} for full detail
+
+5. USER PROFILE / ALLERGY SETTINGS:
+   - GET /api/v1/profile to load current settings
+   - PUT /api/v1/profile to save allergies and preference level
+   - Allergy list: free-form string array
+   - Preference: "Strict" or "Casual"
+
+6. TRUST SCORE COLOR MAPPING:
+   - RED    → Dangerous / Deceptive product (red color)
+   - YELLOW → Caution / Some concerns (amber/yellow color)
+   - GREEN  → Safe / Compliant product (green color)
+
+7. FLAG CATEGORIES for UI icons/grouping:
+   - Sugar  → Sugar-splitting deception
+   - Legal  → Labeling compliance violations
+   - OSINT  → Economic fraud / price anomaly
+   - UPF    → Ultra-processed food markers
+   - FSSAI  → License number issues
+
+8. LEGAL DRAFT:
+   - If legal_draft_available == true, show the legal_draft_text
+   - This is a formal "Jago Grahak Jago" consumer complaint
+   - Allow user to copy/share the text
+
+================================================================================
+14. DATA FLOW SUMMARY
+================================================================================
+
+Image Scan:
+  Flutter → base64 image → POST /api/v1/scan/image
+    → Backend builds OSINT context from wholesale_prices.json
+    → Sends image + context to Gemini 2.0 Flash Vision
+    → Gemini returns structured OpenLabelReport JSON
+    → Backend validates FSSAI number (if extracted)
+    → Stores scan in Supabase 'scans' table
+    → Returns ScanResponse to Flutter
+
+Link Scan:
+  Flutter → URL → POST /api/v1/scan/link
+    → Backend scrapes URL with site-specific parser
+    → Extracts: name, ingredients, nutrition, price, FSSAI, description
+    → Builds OSINT context
+    → Sends scraped text + context to Gemini 2.0 Flash (text mode)
+    → Validates FSSAI, stores, returns ScanResponse
+
+History:
+  Flutter → GET /api/v1/reports (with JWT)
+    → Backend queries Supabase for user's scans
+    → Returns paginated ReportListResponse
+
+Detail:
+  Flutter → GET /api/v1/reports/{id} (with JWT)
+    → Backend fetches single scan (ownership verified)
+    → Returns ReportDetailResponse with full raw data
+
+Profile:
+  Flutter → GET/PUT /api/v1/profile (with JWT)
+    → Read/update user allergies and preference settings
+
+================================================================================
+15. ERROR HANDLING PATTERNS
+================================================================================
+
+  - AI failure:    Returns YELLOW fallback report (scan doesn't fail)
+  - DB failure:    Scan still returns (analysis result not lost)
+  - Scrape failure: Returns 422 with error message
+  - Auth failure:   Returns 401 with "Invalid or expired authentication token"
+  - Not found:     Returns 404 for missing scan reports
+  - Server error:  Returns 500 with generic message (details logged)
+
+================================================================================
+16. CORS CONFIGURATION
+================================================================================
+
+Default: Allow all origins (*)
+Can be restricted via CORS_ORIGINS env variable (comma-separated).
+All methods and headers are allowed.
+Credentials are supported.
+
+================================================================================
+END OF CONTEXT FILE
+================================================================================

@@ -1,0 +1,267 @@
+OpenLabel: Vision, OSINT mocks, and LLM chain
+
+Prerequisites (repo-level, not part of the three files unless you want them)
+
+
+
+
+
+Dependencies: google-cloud-vision, google-generativeai, pydantic>=2.
+
+
+
+Vision auth: Application Default Credentials or GOOGLE_APPLICATION_CREDENTIALS pointing at a service account with Vision API enabled.
+
+
+
+LLM (Gemini) auth: Use the Gemini API key you already have—configure google.generativeai via genai.configure(api_key=...) reading from an environment variable (commonly GOOGLE_API_KEY from Google AI Studio, or GEMINI_API_KEY if you standardize on that name in [llm_service.py](a:\OpenLabel\llm_service.py); pick one and document it in code).
+
+
+
+Milestone 1 — [vision_service.py](a:\OpenLabel\vision_service.py)
+
+Goal: extract_text_from_images(front_img_bytes: bytes, back_img_bytes: bytes) -> str
+
+Implementation outline
+
+
+
+
+
+Use google.cloud.vision.ImageAnnotatorClient().
+
+
+
+For each byte blob, build vision.Image(content=bytes) and call **document_text_detection** (preferred for dense label text; fallback to text_detection if you want a simpler path—document detection usually yields better full-page OCR).
+
+
+
+Concatenate results in a deterministic order, e.g. labeled sections:
+
+
+
+
+
+Header like === FRONT LABEL === + full text  
+
+
+
+=== BACK LABEL (INGREDIENTS / NUTRITION) === + full text
+
+
+
+Strip excessive whitespace; join with newlines so downstream LLM sees one coherent raw_text context string.
+
+
+
+Optional but useful: catch google.api_core.exceptions and re-raise with a clear message (or return empty string + log)—keep behavior consistent with your hackathon error strategy.
+
+No edits to other files beyond this module unless you add requirements.txt separately.
+
+
+
+Milestone 2 — [osint_service.py](a:\OpenLabel\osint_service.py)
+
+Goal: get_local_context(product_name: str, location: str = "Nashik") -> dict
+
+Mock structure (typed loosely as dict per your spec; optionally add TypedDict in code for clarity):
+
+
+
+
+
+**agmarknet_wholesale_price**: e.g. benchmark price vs. label-implied “premium” positioning, arbitrage_gap_percent or similar to simulate wholesale–retail arbitrage.
+
+
+
+**local_weather**: e.g. temp_c: 42, location, risk_note tying heat to thermal denaturation / spoilage risk for dairy or protein-rich products.
+
+
+
+**fssai_news_scraper**: list of mock “recent” localized alerts (batch failures, recalls, advisories) with severity, region, summary.
+
+Include **product_name** and **location** in the returned dict so the LLM can reference them in analysis.
+
+
+
+Milestone 3 — [llm_service.py](a:\OpenLabel\llm_service.py)
+
+Pydantic models (strict JSON target)
+
+Define at minimum:
+
+
+
+
+
+**FlagItem** (recommended): code, title, severity (low|medium|high), evidence (quote from raw_text or OSINT), rationale.
+
+
+
+**ProductAnalysisResult**:
+
+
+
+
+
+trust_score: float — map JSON field trustScore via Field(alias="trustScore") if you want camelCase in API output.
+
+
+
+overall_verdict: str — overallVerdict.
+
+
+
+flags: list[FlagItem].
+
+
+
+legal_draft_available: bool — legalDraftAvailable.
+
+
+
+legal_draft_text: str | None — legalDraftText; None or empty when no violation warranting a complaint.
+
+Use Pydantic v2 model_config = ConfigDict(populate_by_name=True) if mixing snake_case in Python with camelCase JSON.
+
+LLM invocation
+
+
+
+
+
+Gemini (fits your stack): genai.GenerativeModel with generation_config including response_mime_type="application/json" and response_schema from ProductAnalysisResult.model_json_schema() (or the library’s schema helper if you use the supported wrapper).
+
+
+
+Alternative: OpenAI responses/chat.completions with response_format JSON schema derived from the same Pydantic model.
+
+Parse the JSON string into ProductAnalysisResult.model_validate_json(...).
+
+Master system prompt (content requirements)
+
+The system prompt should:
+
+
+
+
+
+Roles: Expert food scientist and consumer-rights lawyer (India context: FSSAI, Consumer Protection Act 2019, misleading advertisement / unfair trade practices where relevant).
+
+
+
+Inputs: Explicit placeholders for {raw_text} and {osint_data} (injected via str.format or f-strings from callers).
+
+
+
+Analysis axes (explicit “hunt list”):
+
+
+
+
+
+Ingredient splitting: multiple sugar sources (e.g. maltodextrin, invert sugar, HFCS) to hide total sugar; “fruit juice concentrate” vs. added sugars; flour blends obscuring refined grain share.
+
+
+
+UPF markers: industrial formulations, emulsifiers/stabilizers patterns, “flavour (nature identical)”, reconstitution, long ingredient lists with additives clusters.
+
+
+
+Economic adulteration: price–quality mismatch vs. agmarknet_wholesale_price / implied premium; dilution cues from label + OSINT.
+
+
+
+Fake organic: missing India Organic / NPOP cues when “organic” is claimed; vague “natural” without certification.
+
+
+
+OSINT use: Weather-driven spoilage/denaturation risk for relevant categories (e.g. milk in 42°C Nashik); FSSAI-style alerts as corroboration or risk elevation.
+
+
+
+Output contract: Respond only with JSON matching ProductAnalysisResult; no markdown outside JSON.
+
+
+
+**legal_draft_text rule**: If a violation or strong misleading-label case is identified, set legalDraftAvailable to true and populate legalDraftText as a complete consumer complaint suitable for Jago Grahak Jago / consumer forum style: parties (consumer vs. manufacturer/seller), facts tied to specific label quotes, misleading aspect, relief sought, reference to consumer protection framework; if no actionable violation, legalDraftAvailable false and legalDraftText null/empty.
+
+Expose a function e.g. analyze_product(raw_text: str, osint_data: dict, *, model_name: str | None = None) -> ProductAnalysisResult that builds user content from the two inputs and uses the system prompt above.
+
+
+
+Data flow (reference)
+
+flowchart LR
+  imgs[front_back_bytes]
+  vision[vision_service]
+  osint[osint_service]
+  llm[llm_service]
+  imgs --> vision
+  vision --> raw[raw_text]
+  osint --> ctx[osint_dict]
+  raw --> llm
+  ctx --> llm
+  llm --> out[ProductAnalysisResult]
+
+
+
+Files to create
+
+
+
+
+
+
+
+File
+
+
+
+Responsibility
+
+
+
+
+
+[vision_service.py](a:\OpenLabel\vision_service.py)
+
+
+
+extract_text_from_images
+
+
+
+
+
+[osint_service.py](a:\OpenLabel\osint_service.py)
+
+
+
+get_local_context mock
+
+
+
+
+
+[llm_service.py](a:\OpenLabel\llm_service.py)
+
+
+
+Pydantic models, system prompt template, analyze_product
+
+Optional (only if you want runnable installs in-repo): requirements.txt with pinned versions.
+
+
+
+Testing notes (post-approval)
+
+
+
+
+
+Vision: Unit-test with mocked ImageAnnotatorClient or skip integration test without credentials.
+
+
+
+LLM: Smoke-test with a tiny raw_text + mock OSINT to verify JSON parses to ProductAnalysisResult.

@@ -1,0 +1,64 @@
+OpenLabel — project context (handoff for new session / model / API account)
+============================================================================
+
+WHAT THIS IS
+------------
+OpenLabel is a hackathon “Consumer OSINT + Tech-Justice” layer: OCR food labels,
+pull live-ish OSINT context (weather, news, commodity metadata), then run Gemini
+with a strict JSON schema into ProductAnalysisResult (trust score, flags, legal draft).
+
+REPO MAP
+--------
+vision_service.py   OCR: Google Cloud Vision document_text_detection first; on failure or OPENLABEL_SKIP_VISION=1, Tesseract via pytesseract+Pillow. extract_text_from_images(front, back) -> raw_text with FRONT/BACK sections.
+osint_service.py    Live OSINT: Open-Meteo geocode+weather, Google News RSS (FSSAI/food safety), Agmarknet v1/commodities fuzzy match; optional data.gov.in if env set.
+llm_service.py      Pydantic models + GEMINI_PRODUCT_ANALYSIS_SCHEMA (inline JSON schema for Gemini proto compatibility) + analyze_product(raw_text, osint_data).
+demo.py             DEMO_RAW_TEXT + get_local_context + analyze_product; --mock skips Gemini.
+test_label_images.py  Reads front.png + back.png (repo root by default); Vision OCR → OSINT → optional Gemini. Flags: --vision-only, --skip-llm.
+requirements.txt    google-cloud-vision, google-generativeai, pydantic, requests.
+
+DEPENDENCIES
+------------
+Python 3.10+
+pip install -r requirements.txt
+
+ENVIRONMENT VARIABLES
+---------------------
+GEMINI_API_KEY or GOOGLE_API_KEY     Required for live LLM (demo without --mock).
+GEMINI_MODEL                         Optional; default in llm_service is gemini-2.5-flash (override if quota is 0 on a model).
+GOOGLE_APPLICATION_CREDENTIALS       Service account JSON path for Vision API (or use gcloud ADC).
+OPENLABEL_SKIP_VISION=1              Use only Tesseract OCR (no GCP Vision calls); needs Tesseract binary + pytesseract.
+TESSERACT_CMD                        Optional full path to tesseract.exe on Windows if not on PATH.
+TESSERACT_LANG                       Optional Tesseract language(s), default eng (e.g. eng+hin for English+Hindi).
+DATA_GOV_IN_API_KEY                  Optional; enables mandi/commodity rows from data.gov.in when paired with resource id.
+DATA_GOV_IN_RESOURCE_ID              Optional; dataset resource UUID from data.gov.in catalog.
+
+HOW TO RUN
+----------
+python demo.py --mock          No Gemini; canned JSON path + still prints OSINT (live network for weather/news if not blocked).
+python demo.py                 Needs Gemini API key; fetches live OSINT then calls Gemini.
+
+Place front.png and back.png in the project folder, then:
+python test_label_images.py --skip-llm   OCR + live OSINT (no Gemini; good for Vision smoke test).
+python test_label_images.py              Full pipeline (Vision + OSINT + Gemini; needs both GCP Vision + Gemini keys).
+python test_label_images.py --vision-only   OCR only (no OSINT / LLM).
+
+OSINT SOURCES (LIVE)
+--------------------
+- Geocoding + weather: https://geocoding-api.open-meteo.com and https://api.open-meteo.com (no key).
+- News: Google News RSS (query built from FSSAI + India + location/state).
+- Commodities: https://api.agmarknet.gov.in/v1/commodities (public list; token + keyword match; if the product mentions milk but no “milk” commodity name exists, OpenLabel uses Ghee/Butter as a dairy proxy with a note). Full modal wholesale prices usually need auth or data.gov.in — see agmarknet_wholesale_price.note in API output.
+
+KNOWN PITFALLS
+--------------
+- Tesseract fallback: install the Tesseract OCR engine (e.g. Windows installer from UB Mannheim) so `tesseract` is on PATH, or set TESSERACT_CMD. `pip install pytesseract Pillow` alone is not enough without the binary.
+- Gemini: response_schema must be the inline dict GEMINI_PRODUCT_ANALYSIS_SCHEMA — Pydantic model_json_schema injects $defs/minimum/default that protos.Schema rejects.
+- Gemini 429 / quota: try GEMINI_MODEL=gemini-2.5-flash-lite or another model; see https://ai.google.dev/gemini-api/docs/rate-limits
+- Some Indian .gov.in sites may have SSL issues on certain machines; Open-Meteo and Google RSS are used to avoid that for core OSINT.
+
+CONTINUE HERE (NEXT STEPS)
+--------------------------
+- Wire real retail price from your app UI into arbitrage_gap_percent when you have SKU MRP.
+- If you obtain Agmarknet bearer token or a stable price API, plug it into agmarknet_wholesale_price without changing the LLM contract.
+- Add short-lived caching (e.g. 15 min) for get_local_context to reduce RSS/API churn during demos.
+
+Last updated: implementation of live OSINT + this handoff file.

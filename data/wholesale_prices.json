@@ -1,0 +1,171 @@
+{
+    "metadata": {
+        "description": "Indian wholesale commodity prices for food adulteration detection",
+        "source": "APMC Market Data, NCDEX, Indian Commodity Exchange averages",
+        "last_updated": "2025-12",
+        "currency": "INR",
+        "unit": "per kg unless specified"
+    },
+    "commodities": [
+        {
+            "name": "Honey (Pure)",
+            "aliases": ["honey", "shahad", "madhu"],
+            "wholesale_price_per_kg": 350,
+            "min_retail_per_kg": 450,
+            "source": "APMC/Bee Keepers Association",
+            "notes": "Pure raw honey. If retail is below ₹350/kg, likely adulterated with sugar syrup."
+        },
+        {
+            "name": "Ghee (Cow)",
+            "aliases": ["ghee", "desi ghee", "cow ghee", "a2 ghee"],
+            "wholesale_price_per_kg": 550,
+            "min_retail_per_kg": 650,
+            "source": "NCDEX/APMC",
+            "notes": "Pure cow ghee. Below ₹550/kg suggests palm oil or vanaspati adulteration."
+        },
+        {
+            "name": "Ghee (Buffalo)",
+            "aliases": ["buffalo ghee"],
+            "wholesale_price_per_kg": 450,
+            "min_retail_per_kg": 550,
+            "source": "NCDEX/APMC",
+            "notes": "Pure buffalo ghee."
+        },
+        {
+            "name": "Extra Virgin Olive Oil",
+            "aliases": ["olive oil", "evoo", "extra virgin"],
+            "wholesale_price_per_kg": 800,
+            "min_retail_per_kg": 1000,
+            "source": "Import Data/DGFT",
+            "notes": "Imported EVOO. Below ₹800/kg likely pomace or mixed oil."
+        },
+        {
+            "name": "Saffron (Kesar)",
+            "aliases": ["saffron", "kesar", "zafran"],
+            "wholesale_price_per_kg": 150000,
+            "min_retail_per_kg": 200000,
+            "source": "Kashmir Saffron Board",
+            "notes": "Per KG wholesale. Sold in grams typically (₹150/g). Heavy adulteration with corn silk."
+        },
+        {
+            "name": "Coconut Oil (Cold Pressed)",
+            "aliases": ["coconut oil", "virgin coconut oil", "nariyal tel"],
+            "wholesale_price_per_kg": 220,
+            "min_retail_per_kg": 280,
+            "source": "APMC Kerala/Karnataka",
+            "notes": "Cold-pressed grade."
+        },
+        {
+            "name": "Mustard Oil",
+            "aliases": ["mustard oil", "sarson ka tel"],
+            "wholesale_price_per_kg": 160,
+            "min_retail_per_kg": 200,
+            "source": "NCDEX/APMC",
+            "notes": "Pure kachchi ghani mustard oil."
+        },
+        {
+            "name": "Turmeric Powder",
+            "aliases": ["turmeric", "haldi"],
+            "wholesale_price_per_kg": 120,
+            "min_retail_per_kg": 180,
+            "source": "NCDEX Sangli/Erode",
+            "notes": "Curcumin 3%+ grade. Adulterated with metanil yellow or lead chromate."
+        },
+        {
+            "name": "Red Chilli Powder",
+            "aliases": ["chilli powder", "lal mirch", "red chili"],
+            "wholesale_price_per_kg": 180,
+            "min_retail_per_kg": 250,
+            "source": "APMC Guntur",
+            "notes": "Teja/Byadgi grade. Adulterated with brick powder, sudan dye."
+        },
+        {
+            "name": "Black Pepper",
+            "aliases": ["black pepper", "kali mirch", "pepper"],
+            "wholesale_price_per_kg": 550,
+            "min_retail_per_kg": 700,
+            "source": "APMC Kerala/Karnataka",
+            "notes": "Malabar grade. Papaya seeds commonly used as adulterant."
+        },
+        {
+            "name": "Cumin Seeds",
+            "aliases": ["cumin", "jeera", "zeera"],
+            "wholesale_price_per_kg": 300,
+            "min_retail_per_kg": 400,
+            "source": "NCDEX Unjha",
+            "notes": "Gujarat grade. Grass seeds used as adulterant."
+        },
+        {
+            "name": "Basmati Rice",
+            "aliases": ["basmati", "basmati rice"],
+            "wholesale_price_per_kg": 80,
+            "min_retail_per_kg": 120,
+            "source": "APMC",
+            "notes": "1121 grade. Mixed with non-basmati or plastic rice allegations."
+        },
+        {
+            "name": "A2 Milk",
+            "aliases": ["a2 milk", "gir cow milk", "desi cow milk"],
+            "wholesale_price_per_kg": 80,
+            "min_retail_per_kg": 100,
+            "source": "NDDB/Dairy Cooperatives",
+            "notes": "Per litre. Premium A2 desi cow milk."
+        },
+        {
+            "name": "Almond",
+            "aliases": ["almond", "badam"],
+            "wholesale_price_per_kg": 650,
+            "min_retail_per_kg": 800,
+            "source": "APMC Delhi/Mumbai",
+            "notes": "California/Afghani grade."
+        },
+        {
+            "name": "Cashew",
+            "aliases": ["cashew", "kaju"],
+            "wholesale_price_per_kg": 700,
+            "min_retail_per_kg": 900,
+            "source": "APMC Goa/Kerala",
+            "notes": "W240/W320 grade."
+        },
+        {
+            "name": "Jaggery (Gud)",
+            "aliases": ["jaggery", "gud", "gur"],
+            "wholesale_price_per_kg": 45,
+            "min_retail_per_kg": 60,
+            "source": "APMC Kolhapur",
+            "notes": "Organic grade. Chemical jaggery uses chemicals for color."
+        },
+        {
+            "name": "Paneer",
+            "aliases": ["paneer", "cottage cheese"],
+            "wholesale_price_per_kg": 280,
+            "min_retail_per_kg": 350,
+            "source": "Dairy Market",
+            "notes": "Made from full cream milk. Starch and skimmed milk powder adulteration common."
+        },
+        {
+            "name": "Tea (CTC)",
+            "aliases": ["tea", "chai", "ctc tea"],
+            "wholesale_price_per_kg": 250,
+            "min_retail_per_kg": 350,
+            "source": "Tea Board Auction",
+            "notes": "Assam CTC grade. Iron filings and used tea leaves as adulterants."
+        },
+        {
+            "name": "Coffee (Filter)",
+            "aliases": ["coffee", "filter coffee", "coffee powder"],
+            "wholesale_price_per_kg": 400,
+            "min_retail_per_kg": 500,
+            "source": "Coffee Board",
+            "notes": "Arabica/Robusta blend. Chicory beyond declared ratio is adulteration."
+        },
+        {
+            "name": "Cinnamon (Dalchini)",
+            "aliases": ["cinnamon", "dalchini"],
+            "wholesale_price_per_kg": 350,
+            "min_retail_per_kg": 450,
+            "source": "APMC Kerala",
+            "notes": "True Ceylon cinnamon. Cassia bark often sold as cinnamon (higher coumarin)."
+        }
+    ]
+}

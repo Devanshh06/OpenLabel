@@ -1,0 +1,247 @@
+# OpenLabel — Member 2: The Engine Room
+
+Build the FastAPI backend that serves as the central nervous system connecting the Flutter App (Member 1) ↔ AI Brain (Member 3) ↔ Supabase Database.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **API Keys Required** — Before running the server, you will need to provide:
+> 1. `SUPABASE_URL` — Your Supabase project URL
+> 2. `SUPABASE_ANON_KEY` — Public anon key for RLS-protected operations
+> 3. `SUPABASE_SERVICE_ROLE_KEY` — Service role key for admin operations
+> 4. `GEMINI_API_KEY` — Google Gemini API key for the AI analysis pipeline
+>
+> These will be stored in a `.env` file (git-ignored).
+
+> [!WARNING]
+> **Supabase Project Prerequisite** — You must have a Supabase project created with the provided SQL schema already executed. The backend will connect to it, not create the tables.
+
+> [!IMPORTANT]
+> **Decision: OCR Strategy** — For image-based label analysis, should we:
+> - **Option A (Recommended):** Use Gemini 2.0 Flash's native vision capabilities (send image directly to Gemini, no separate OCR needed)
+> - **Option B:** Use a dedicated OCR service (Tesseract/Google Vision) first, then pipe text to Gemini
+>
+> Option A is simpler, cheaper, and more accurate for food labels. Please confirm.
+
+---
+
+## Proposed Changes
+
+### Project Structure
+
+```
+OpenLabel/
+├── .env                        # Secrets (git-ignored)
+├── .env.example                # Template for team
+├── .gitignore
+├── requirements.txt            # Python dependencies
+├── README.md                   # Setup & API docs
+├── main.py                     # FastAPI app entry point
+├── config.py                   # Settings & env loading
+├── database.py                 # Supabase client initialization
+├── auth.py                     # JWT authentication dependency
+├── models/
+│   ├── __init__.py
+│   ├── schemas.py              # Pydantic request/response models
+│   └── ai_schemas.py           # Gemini structured output schemas
+├── routers/
+│   ├── __init__.py
+│   ├── scan.py                 # POST /scan/image, POST /scan/link
+│   ├── reports.py              # GET /reports, GET /reports/{id}
+│   └── users.py                # GET /profile, PUT /profile
+├── services/
+│   ├── __init__.py
+│   ├── scraper.py              # Link scraping logic (BigBasket, Blinkit, etc.)
+│   ├── ai_engine.py            # Gemini AI analysis pipeline
+│   ├── fssai_validator.py      # FSSAI 14-digit license validation
+│   └── osint_data.py           # Wholesale price OSINT reference data
+└── data/
+    └── wholesale_prices.json   # Static OSINT commodity price reference
+```
+
+---
+
+### Core Configuration
+
+#### [NEW] [.env.example](file:///c:/Users/kunal/Desktop/OpenLabel/.env.example)
+Template with all required environment variable keys (no actual secrets).
+
+#### [NEW] [config.py](file:///c:/Users/kunal/Desktop/OpenLabel/config.py)
+- Uses `pydantic-settings` to load and validate environment variables
+- Exports a singleton `Settings` object used throughout the app
+
+#### [NEW] [.gitignore](file:///c:/Users/kunal/Desktop/OpenLabel/.gitignore)
+Standard Python `.gitignore` plus `.env`, `__pycache__/`, `.venv/`
+
+---
+
+### Database Layer
+
+#### [NEW] [database.py](file:///c:/Users/kunal/Desktop/OpenLabel/database.py)
+- Initializes the Supabase async client using `supabase-py`
+- Provides a `get_supabase()` dependency for FastAPI injection
+- Uses the **Service Role Key** for backend operations (bypasses RLS)
+- Uses the **Anon Key** with user JWT for user-scoped queries
+
+---
+
+### Authentication
+
+#### [NEW] [auth.py](file:///c:/Users/kunal/Desktop/OpenLabel/auth.py)
+- `HTTPBearer` security scheme
+- `get_current_user()` dependency that:
+  - Extracts JWT from `Authorization: Bearer <token>` header
+  - Validates via `supabase.auth.get_user(token)`
+  - Returns user object or raises `401 Unauthorized`
+
+---
+
+### Data Models
+
+#### [NEW] [models/schemas.py](file:///c:/Users/kunal/Desktop/OpenLabel/models/schemas.py)
+Pydantic models for API request/response:
+- `ScanImageRequest` — Base64 image data + optional product name
+- `ScanLinkRequest` — Product URL to scrape
+- `ScanResponse` — Trust score, flags, legal draft, full report
+- `UserProfile` — Allergies list, preference level
+- `ReportSummary` / `ReportDetail` — For history endpoints
+
+#### [NEW] [models/ai_schemas.py](file:///c:/Users/kunal/Desktop/OpenLabel/models/ai_schemas.py)
+Pydantic models for Gemini structured output:
+- `Flag` — title, description, category (Sugar/Legal/OSINT)
+- `OpenLabelReport` — trustScore, overallVerdict, flags[], legalDraftAvailable, legalDraftText
+- Maps exactly to the Member 3 prompt's expected JSON format
+
+---
+
+### API Routers
+
+#### [NEW] [routers/scan.py](file:///c:/Users/kunal/Desktop/OpenLabel/routers/scan.py)
+
+**`POST /api/v1/scan/image`** — The primary endpoint Member 1 calls
+1. Receives base64-encoded image from Flutter app
+2. Sends image directly to Gemini 2.0 Flash with the Tech-Justice system prompt
+3. Receives structured JSON analysis
+4. Stores scan record in `scans` table
+5. Returns the full report to Flutter
+
+**`POST /api/v1/scan/link`** — Alternative input via product URL
+1. Receives product URL (BigBasket, Blinkit, Amazon, Flipkart, etc.)
+2. Calls `scraper.py` to extract product text data
+3. Enriches with OSINT wholesale price data from `osint_data.py`
+4. Pipes enriched text to Gemini AI engine
+5. Stores + returns report
+
+#### [NEW] [routers/reports.py](file:///c:/Users/kunal/Desktop/OpenLabel/routers/reports.py)
+
+**`GET /api/v1/reports`** — Authenticated user's scan history
+- Paginated list of past scans with trust scores
+- Sorted by most recent
+
+**`GET /api/v1/reports/{scan_id}`** — Full report detail
+- Returns complete JSON report for a specific scan
+
+#### [NEW] [routers/users.py](file:///c:/Users/kunal/Desktop/OpenLabel/routers/users.py)
+
+**`GET /api/v1/profile`** — Get user's allergy/preference profile
+**`PUT /api/v1/profile`** — Update allergies & preference level
+
+---
+
+### Services Layer
+
+#### [NEW] [services/scraper.py](file:///c:/Users/kunal/Desktop/OpenLabel/services/scraper.py)
+Web scraper for e-commerce product pages:
+- Uses `httpx` (async) + `BeautifulSoup4` for HTML parsing
+- Extracts: product name, ingredient list, nutrition info, price, FSSAI number
+- Site-specific parsers for major Indian platforms:
+  - BigBasket, Blinkit, Amazon.in, Flipkart, JioMart
+- Fallback generic parser for unknown sites
+- Proper User-Agent headers and rate limiting
+
+#### [NEW] [services/ai_engine.py](file:///c:/Users/kunal/Desktop/OpenLabel/services/ai_engine.py)
+Gemini 2.0 Flash integration:
+- `analyze_image(image_bytes)` — Direct vision analysis of food label images
+- `analyze_text(extracted_text, osint_context)` — Text-based analysis with OSINT enrichment
+- Both methods use the full Tech-Justice system prompt from Member 3
+- Returns `OpenLabelReport` Pydantic model via structured output
+- Handles retries and error fallbacks
+
+#### [NEW] [services/fssai_validator.py](file:///c:/Users/kunal/Desktop/OpenLabel/services/fssai_validator.py)
+FSSAI license number validator:
+- Format validation (14 digits, structure check)
+- Decodes: license type (digit 1), state code (digits 2-3), year (digits 4-5)
+- Online verification via FoSCoS portal scraping (best-effort)
+- Returns validation status + decoded metadata
+
+#### [NEW] [services/osint_data.py](file:///c:/Users/kunal/Desktop/OpenLabel/services/osint_data.py)
+OSINT wholesale price reference:
+- Loads `wholesale_prices.json` with commodity reference prices
+- `get_wholesale_price(commodity)` — Look up honey, ghee, olive oil, etc.
+- Used by the "Economic Sniper" feature to flag below-wholesale retail prices
+
+#### [NEW] [data/wholesale_prices.json](file:///c:/Users/kunal/Desktop/OpenLabel/data/wholesale_prices.json)
+Static JSON with Indian wholesale commodity prices in INR/kg:
+- Honey, Ghee, Olive Oil, Saffron, Coconut Oil, A2 Milk, etc.
+- Sourced from APMC/commodity exchange reference data
+- Updated periodically
+
+---
+
+### Application Entry Point
+
+#### [NEW] [main.py](file:///c:/Users/kunal/Desktop/OpenLabel/main.py)
+- FastAPI app with CORS middleware (for Flutter web/dev)
+- Includes all routers under `/api/v1`
+- Health check endpoint at `/`
+- Startup/shutdown lifespan for Supabase client
+- API documentation auto-generated at `/docs`
+
+#### [NEW] [requirements.txt](file:///c:/Users/kunal/Desktop/OpenLabel/requirements.txt)
+```
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+supabase>=2.12.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
+google-genai>=1.5.0
+httpx>=0.28.0
+beautifulsoup4>=4.12.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.18
+```
+
+#### [NEW] [README.md](file:///c:/Users/kunal/Desktop/OpenLabel/README.md)
+Setup guide with:
+- Prerequisites (Python 3.11+, Supabase project)
+- Environment variable setup
+- Virtual environment creation
+- Database schema SQL
+- Running the server
+- API endpoint reference
+- Integration notes for Member 1 (Flutter) and Member 3 (AI prompts)
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> 1. **OCR Strategy** — Gemini Vision (Option A) vs separate OCR service (Option B)? I recommend Option A.
+> 2. **Do you already have a Supabase project?** If yes, I can use your URL/keys immediately. If not, we'll set up `.env.example` for now and you can fill it in later.
+> 3. **Which e-commerce sites should the scraper prioritize?** I'll implement BigBasket, Blinkit, Amazon.in as the top 3. Any others?
+> 4. **Authentication scope** — Should all endpoints require auth, or should `/scan/*` work without login (anonymous scans)?
+
+## Verification Plan
+
+### Automated Tests
+1. **Server Startup** — `uvicorn main:app` boots without errors
+2. **Health Check** — `GET /` returns 200
+3. **API Docs** — `GET /docs` loads Swagger UI
+4. **Scan endpoint smoke test** — `POST /api/v1/scan/link` with a sample product URL returns a valid `OpenLabelReport`
+5. **FSSAI Validation** — Unit test with known valid/invalid license numbers
+6. **Schema Validation** — Pydantic models correctly serialize/deserialize the AI response format
+
+### Manual Verification
+- Test the full flow: Flutter sends image → FastAPI receives → Gemini analyzes → Supabase stores → response returned
+- Verify link scraping works against live BigBasket/Blinkit product pages
+- Confirm Supabase data shows up in the dashboard
