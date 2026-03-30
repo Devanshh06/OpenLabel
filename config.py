@@ -6,6 +6,7 @@ Loads environment variables with validation via pydantic-settings.
 from functools import lru_cache
 from pydantic_settings import BaseSettings
 from typing import List
+import os
 
 
 class Settings(BaseSettings):
@@ -24,7 +25,10 @@ class Settings(BaseSettings):
 
     # ── Server ────────────────────────────────────────────
     app_host: str = "0.0.0.0"
-    app_port: int = 8000
+    # Render dynamically assigns the external port via `PORT`.
+    # If the app is started with `python main.py` (not `uvicorn ... --port $PORT`),
+    # we still need to listen on the Render-provided `PORT` to avoid 502 Bad Gateway.
+    app_port: int = int(os.getenv("PORT", "8000"))
     app_debug: bool = False
 
     # ── CORS ──────────────────────────────────────────────

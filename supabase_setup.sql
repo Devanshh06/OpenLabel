@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS scans (
     fssai_number VARCHAR(14)
 );
 
+-- If this DB was created with an older schema, `scans` may exist but miss new columns.
+-- Make the schema forward-compatible with the backend code.
+ALTER TABLE public.scans
+ADD COLUMN IF NOT EXISTS trust_level TEXT CHECK (trust_level IN ('RED', 'YELLOW', 'GREEN'));
+
 -- User Profiles Table — Allergy preferences & settings
 CREATE TABLE IF NOT EXISTS user_profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,

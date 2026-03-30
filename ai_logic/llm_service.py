@@ -200,17 +200,9 @@ def _extract_ingredients_with_gemini(
 ) -> IngredientExtractionResult:
     """Extract normalized ingredient list from OCR using Gemini."""
     system_instruction = (
-        "You are an expert food label reader. From the provided OCR label text, extract the ingredient list "
-        "including sub-components (e.g., if you see multiple sweeteners, list them separately). "
-        "Return a JSON object with `ingredients`, where each item contains:\n"
-        "- `originalFragment`: the exact short fragment/ingredient phrase you used from the OCR.\n"
-        "- `normalizedName`: a cleaned ingredient name suitable for Open Food Facts ingredient taxonomy lookup. "
-        "Use common ingredient synonyms when OCR spelling varies.\n\n"
-        "Rules:\n"
-        "- Only output the JSON object.\n"
-        "- Use a conservative approach: if uncertain, omit that ingredient rather than guessing.\n"
-        "- Prefer ingredients that affect splitting, UPF markers, and allergens (e.g., sweeteners, emulsifiers, stabilizers, "
-        "milk derivatives, wheat/gluten, nuts)."
+        "Extract ingredients from OCR text. Return JSON with 'ingredients' array. "
+        "Each item needs 'originalFragment' (verbatim) and 'normalizedName' (cleaned for taxonomy). "
+        "Output ONLY JSON. Focus on UPF markers, sweeteners, and allergens. Omit if uncertain."
     )
 
     model = genai.GenerativeModel(
@@ -288,22 +280,25 @@ def _enrich_ingredients_with_off(
         except Exception as e:
             enriched_item = {
                 "query": q,
-                "originalFragment": item.original_fragment,
-                "off_suggest": suggestions,
-                "off_selected": selected,
-                "off_taxonomy": taxonomy_payload,
-                "error": str(e),
+                "off_err": str(e),
             }
             _OFF_CACHE["enriched"][cache_key] = enriched_item
             enriched.append(enriched_item)
             continue
 
+        # Prune OFF taxonomy to save LLM tokens
+        min_tax = {}
+        if taxonomy_payload and selected in taxonomy_payload:
+            src = taxonomy_payload[selected]
+            min_tax = {
+                "name": src.get("name", {}).get("en", ""),
+                "parents": src.get("parents", [])
+            }
+
         enriched_item = {
             "query": q,
-            "originalFragment": item.original_fragment,
-            "off_suggest": suggestions,
-            "off_selected": selected,
-            "off_taxonomy": taxonomy_payload,
+            "fragment": item.original_fragment,
+            "tax": min_tax,
         }
         _OFF_CACHE["enriched"][cache_key] = enriched_item
         enriched.append(enriched_item)
@@ -311,61 +306,23 @@ def _enrich_ingredients_with_off(
     return enriched
 
 
-MASTER_SYSTEM_PROMPT_TEMPLATE = """You are a senior food scientist and a consumer-rights lawyer working in India. Your job is to protect consumers from adulteration, health-washing, hidden allergens, and misleading packaging.
+MASTER_SYSTEM_PROMPT_TEMPLATE = """You are an Indian food safety/legal expert. Analyze OCR text + OSINT JSON to protect against deception.
+MANDATORY HUNT LIST:
+1. Split sugars/grains (e.g., maltodextrin + invert sugar).
+2. UPF markers (emulsifiers, long additive lists).
+3. Economic adulteration (retail vs wholesale price gaps from OSINT).
+4. Fake organic/natural claims.
+5. OSINT: heat spoilage risks, FSSAI news recalls.
 
-You will receive:
-1) RAW LABEL TEXT from OCR (front and back sections).
-2) OSINT CONTEXT (JSON): simulated Agmarknet wholesale pricing, local weather, and FSSAI-style news alerts.
+OUTPUT JSON ONLY matching the schema (No markdown fences):
+- trustScore: 0-100 float.
+- overallVerdict: 2-3 sentences max.
+- flags: Issues found with severity/evidence.
+- legalDraftAvailable / legalDraftText: Jago Grahak Jago format complaint IF actionable deception exists; else false/null.
+If OFF ontology is in JSON, use it to map ingredient synonyms & UPF groups.
 
-## Mandatory hunt list (actively search; do not skip)
-
-### Ingredient splitting (hiding sugar / carbs / refined grains)
-- Multiple added sugar sources listed separately (e.g. sucrose, invert sugar, glucose syrup, maltodextrin, HFCS, fruit juice concentrate used as sweetener).
-- Flour blends that obscure refined grain share (maida mixed with multigrain claims).
-- Synonyms and "split" ingredients that reduce transparency of total sugar or salt.
-
-### Ultra-processed food (UPF) markers
-- Industrial formulations: emulsifiers, stabilisers, thickeners clusters; "nature identical flavouring substances"; reconstituted or reformed products.
-- Very long ingredient lists dominated by additives vs. whole foods.
-
-### Economic adulteration
-- Compare implied premium vs. OSINT `agmarknet_wholesale_price` / arbitrage signals when category matches (dairy, oils, staples).
-- Dilution cues: skimmed milk in "full cream" context, water extenders, cheap oil substitution patterns suggested by label order and category.
-
-### Fake / weak organic or "natural" claims
-- "Organic" without credible India Organic / NPOP / certifier cues on label when claim is strong.
-- "Natural" used broadly without definitional backing; green imagery without substance.
-
-### OSINT integration
-- Use `local_weather` (e.g. 42°C in Nashik) to flag spoilage / thermal denaturation risk for heat-sensitive products (dairy, high-protein drinks).
-- Use `fssai_news_scraper` items to elevate severity if the product category or region aligns.
-
-## Legal / consumer protection (India)
-- Reference framework conceptually where useful: FSSAI labelling & claims, Consumer Protection Act 2019 (misleading advertisement / unfair trade practices) — do not invent case citations or FIR numbers.
-
-## Output contract
-- Respond with ONE JSON object ONLY, matching the schema. No markdown fences, no commentary outside JSON.
-- `trustScore`: float 0–100.
-- `overallVerdict`: clear, non-alarmist unless evidence is strong.
-- `flags`: include every material issue found; use severity honestly.
-- `legalDraftAvailable` / `legalDraftText`:
-  - If you find a strong misleading-label or unfair-practice case, set `legalDraftAvailable` to true and set `legalDraftText` to a **complete** complaint suitable for **Jago Grahak Jago** / consumer commission style: parties (consumer vs manufacturer/seller), dated facts, **verbatim misleading label quotes**, how it misleads, particulars of loss/inconvenience if any, relief sought (replacement/refund/damages/corrective labelling as appropriate), and statutory basis in plain language.
-  - If no actionable violation, set `legalDraftAvailable` to false and `legalDraftText` to null.
-
-## Inputs
-
-### RAW LABEL TEXT
-{raw_text}
-
-### OSINT CONTEXT (JSON)
-{osint_data}
-
-### OpenFoodFacts ingredient ontology (if provided in OSINT CONTEXT JSON)
-- If the key `open_food_facts_ingredients` exists, use it to recognize ingredient synonyms and sub-component identities.
-- For ingredient splitting: treat multiple extracted ingredients as potentially the same sweetener/additive class if OFF taxonomy/description indicates they belong together.
-- For UPF markers: use OFF ingredient descriptions/parents/children as supporting evidence for emulsifiers, stabilizers, thickeners, and industrial processing signals.
-- For hidden allergens: if OFF taxonomy names/descriptions indicate allergenic ingredients (milk derivatives, wheat/gluten, nuts, etc.), treat them as present even if OCR wording is incomplete.
-"""
+TEXT: {raw_text}
+OSINT: {osint_data}"""
 
 
 def _gemini_api_key() -> str:
