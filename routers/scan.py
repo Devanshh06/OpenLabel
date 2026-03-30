@@ -151,6 +151,8 @@ async def scan_image(
         "fssaiNumber": fssai_number,
         "legalDraftAvailable": report.legal_draft_available,
         "legalDraftText": report.legal_draft_text,
+        "healthierAlternatives": report.healthier_alternatives,
+        "allergyRisks": report.allergy_risks,
     }
     _store_scan_in_supabase(
         scan_id=scan_id,
@@ -175,6 +177,8 @@ async def scan_image(
         fssai_number=fssai_number,
         legal_draft_available=report.legal_draft_available,
         legal_draft_text=report.legal_draft_text,
+        healthier_alternatives=report.healthier_alternatives,
+        allergy_risks=report.allergy_risks,
     )
 
 
@@ -220,6 +224,8 @@ async def scan_dual_image(
         "fssaiNumber": fssai_number,
         "legalDraftAvailable": report.legal_draft_available,
         "legalDraftText": report.legal_draft_text,
+        "healthierAlternatives": report.healthier_alternatives,
+        "allergyRisks": report.allergy_risks,
     }
     _store_scan_in_supabase(
         scan_id=scan_id,
@@ -244,6 +250,8 @@ async def scan_dual_image(
         fssai_number=fssai_number,
         legal_draft_available=report.legal_draft_available,
         legal_draft_text=report.legal_draft_text,
+        healthier_alternatives=report.healthier_alternatives,
+        allergy_risks=report.allergy_risks,
     )
 
 
@@ -300,6 +308,8 @@ async def scan_link(
         "fssaiNumber": fssai_number,
         "legalDraftAvailable": report.legal_draft_available,
         "legalDraftText": report.legal_draft_text,
+        "healthierAlternatives": report.healthier_alternatives,
+        "allergyRisks": report.allergy_risks,
         "sourceUrl": request.url,
     }
     _store_scan_in_supabase(
@@ -325,4 +335,6 @@ async def scan_link(
         fssai_number=fssai_number,
         legal_draft_available=report.legal_draft_available,
         legal_draft_text=report.legal_draft_text,
+        healthier_alternatives=report.healthier_alternatives,
+        allergy_risks=report.allergy_risks,
     )

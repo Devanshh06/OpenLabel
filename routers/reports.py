@@ -155,6 +155,8 @@ async def get_report(
             fssai_number=row.get("fssai_number"),
             legal_draft_available=full_report.get("legalDraftAvailable", False),
             legal_draft_text=full_report.get("legalDraftText"),
+            healthier_alternatives=full_report.get("healthierAlternatives", []),
+            allergy_risks=full_report.get("allergyRisks", []),
             created_at=str(row.get("created_at", "")),
             raw_text_extracted=row.get("raw_text_extracted"),
             input_source=row.get("input_source"),

@@ -61,6 +61,8 @@ class ScanResponse(BaseModel):
     fssai_number: Optional[str] = Field(None, description="Detected FSSAI license number.")
     legal_draft_available: bool = Field(False, description="Whether a legal complaint draft is available.")
     legal_draft_text: Optional[str] = Field(None, description="Auto-generated Jago Grahak Jago complaint.")
+    healthier_alternatives: List[str] = Field(default_factory=list, description="Short, concise list of healthier alternative product options.")
+    allergy_risks: List[str] = Field(default_factory=list, description="Short, concise list of potential allergens or allergy effects.")
     created_at: Optional[str] = Field(None, description="Timestamp of the scan.")
 
 
