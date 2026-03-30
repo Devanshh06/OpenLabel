@@ -57,6 +57,16 @@ class ProductAnalysisResult(BaseModel):
         default=None,
         description="Full Jago Grahak Jago / consumer-forum style complaint when legalDraftAvailable is true.",
     )
+    healthier_alternatives: str | None = Field(
+        alias="healthierAlternatives",
+        default=None,
+        description="A short, concise string listing healthier alternative product options.",
+    )
+    allergy_details: str | None = Field(
+        alias="allergyDetails",
+        default=None,
+        description="A short, concise string explicitly stating if the product can cause any allergy or have allergy effects.",
+    )
 
 
 # Inline JSON Schema for Gemini structured output. Passing a Pydantic model class or
@@ -82,6 +92,8 @@ GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
         },
         "legalDraftAvailable": {"type": "boolean"},
         "legalDraftText": {"type": "string", "nullable": True},
+        "healthierAlternatives": {"type": "string", "nullable": True},
+        "allergyDetails": {"type": "string", "nullable": True},
     },
     "required": [
         "trustScore",
@@ -89,6 +101,8 @@ GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
         "flags",
         "legalDraftAvailable",
         "legalDraftText",
+        "healthierAlternatives",
+        "allergyDetails",
     ],
 }
 
@@ -319,6 +333,8 @@ OUTPUT JSON ONLY matching the schema (No markdown fences):
 - overallVerdict: 2-3 sentences max.
 - flags: Issues found with severity/evidence.
 - legalDraftAvailable / legalDraftText: Jago Grahak Jago format complaint IF actionable deception exists; else false/null.
+- healthierAlternatives: Ensure it is a VERY SHORT AND CONCISE string of healthier product options to consider instead of this.
+- allergyDetails: Ensure it is a VERY SHORT AND CONCISE string stating if the product can cause any allergy or have an allergy effect.
 If OFF ontology is in JSON, use it to map ingredient synonyms & UPF groups.
 
 TEXT: {raw_text}

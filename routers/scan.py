@@ -121,17 +121,12 @@ async def scan_image(
 ):
     logger.info("Image scan initiated | User: %s", user.id if user else "anonymous")
 
-    osint_context = await get_osint_context(
-        request.product_name,
-        retail_price=request.retail_price,
-    )
-
     try:
         report, raw_text_extracted = await analyze_image(
             image_base64=request.image_base64,
             product_name=request.product_name,
             retail_price=request.retail_price,
-            osint_context=osint_context,
+            location="Nashik",
         )
     except Exception as e:
         logger.exception("scan_image failed")
@@ -194,18 +189,13 @@ async def scan_dual_image(
 ):
     logger.info("Dual-image scan initiated | User: %s", user.id if user else "anonymous")
 
-    osint_context = await get_osint_context(
-        request.product_name,
-        retail_price=request.retail_price,
-    )
-
     try:
         report, raw_text_extracted = await analyze_dual_images(
             front_image_base64=request.front_image_base64,
             back_image_base64=request.back_image_base64,
             product_name=request.product_name,
             retail_price=request.retail_price,
-            osint_context=osint_context,
+            location="Nashik",
         )
     except Exception as e:
         logger.exception("scan_dual_image failed")
@@ -280,17 +270,12 @@ async def scan_link(
         )
 
     extracted_text = scraped.to_analysis_text()
-    osint_context = await get_osint_context(
-        scraped.product_name,
-        retail_price=scraped.price,
-    )
-
     try:
         report, _ = await analyze_text(
             extracted_text=extracted_text,
             product_name=scraped.product_name,
             retail_price=scraped.price,
-            osint_context=osint_context,
+            location="Nashik",
         )
     except Exception as e:
         logger.exception("scan_link failed")
@@ -315,6 +300,8 @@ async def scan_link(
         "fssaiNumber": fssai_number,
         "legalDraftAvailable": report.legal_draft_available,
         "legalDraftText": report.legal_draft_text,
+        "healthierAlternatives": report.healthier_alternatives,
+        "allergyDetails": report.allergy_details,
         "sourceUrl": request.url,
     }
     _store_scan_in_supabase(

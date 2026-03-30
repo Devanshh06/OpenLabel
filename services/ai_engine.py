@@ -159,7 +159,7 @@ async def analyze_image(
     *,
     product_name: Optional[str] = None,
     retail_price: Optional[float] = None,
-    osint_context: Optional[dict[str, Any]] = None,
+    location: str = "Nashik",
 ) -> Tuple[ProductAnalysisResult, str]:
     """
     Analyze a single-image scan.
@@ -167,6 +167,7 @@ async def analyze_image(
     Returns:
       (ProductAnalysisResult, raw_text_extracted)
     """
+    from services.osint_data import get_osint_context
     model_id = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     _ensure_member3_env()
 
@@ -174,18 +175,20 @@ async def analyze_image(
     mime_type = _infer_image_mime_type(image_base64, default="image/jpeg")
     mime_type = _infer_image_mime_type_from_bytes(image_bytes, default=mime_type)
 
-    raw_text_extracted = await asyncio.to_thread(
+    ocr_task = asyncio.to_thread(
         _extract_raw_text_from_image_bytes,
         image_bytes,
         model_id=model_id,
         mime_type=mime_type,
     )
+    
+    osint_task = get_osint_context(
+        product_name=product_name,
+        retail_price=retail_price,
+        location=location
+    )
 
-    osint_data = osint_context or {}
-    # Ensure the model sees the app-provided context if needed.
-    osint_data = dict(osint_data)
-    osint_data.setdefault("product_name", product_name)
-    osint_data.setdefault("retail_price_inr", retail_price)
+    raw_text_extracted, osint_data = await asyncio.gather(ocr_task, osint_task)
 
     report: ProductAnalysisResult = await asyncio.to_thread(
         _member3_analyze_product,
@@ -201,14 +204,17 @@ async def analyze_text(
     *,
     product_name: Optional[str] = None,
     retail_price: Optional[float] = None,
-    osint_context: Optional[dict[str, Any]] = None,
+    location: str = "Nashik",
 ) -> Tuple[ProductAnalysisResult, str]:
     """Analyze scraped/OCR text via Member 3."""
+    from services.osint_data import get_osint_context
     _ensure_member3_env()
-    osint_data = osint_context or {}
-    osint_data = dict(osint_data)
-    osint_data.setdefault("product_name", product_name)
-    osint_data.setdefault("retail_price_inr", retail_price)
+    
+    osint_data = await get_osint_context(
+        product_name=product_name,
+        retail_price=retail_price,
+        location=location
+    )
 
     model_id = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
     report: ProductAnalysisResult = await asyncio.to_thread(
@@ -226,72 +232,57 @@ async def analyze_dual_images(
     back_image_base64: str,
     product_name: Optional[str] = None,
     retail_price: Optional[float] = None,
-    osint_context: Optional[dict[str, Any]] = None,
-    extract_text_fn=None,
+    location: str = "Nashik",
 ) -> Tuple[ProductAnalysisResult, str]:
     """
-    Dual-image analysis helper.
-
-    `extract_text_fn` is injectable for testing; default uses Member 3 OCR adapter.
+    Dual-image analysis using Gemini multi-modal OCR concurrently with OSINT.
     """
-    from services.vision import extract_text_from_base64_images
-
-    if extract_text_fn is None:
-        extract_text_fn = extract_text_from_base64_images
-
+    from services.osint_data import get_osint_context
     _ensure_member3_env()
-    try:
-        raw_text_extracted = await asyncio.to_thread(
-            extract_text_fn,
-            front_image_base64,
-            back_image_base64,
-        )
-    except Exception as e:
-        # Member 3 vision_service relies on GCP creds and/or a local Tesseract install.
-        # For a "just run demo" experience, fall back to Gemini vision extraction.
-        logger.error("Dual-image OCR via ai_logic failed; falling back to Gemini vision. Error: %s", e)
 
-        front_bytes = _decode_image_base64(front_image_base64)
-        back_bytes = _decode_image_base64(back_image_base64)
-        front_mime = _infer_image_mime_type(front_image_base64, default="image/jpeg")
-        back_mime = _infer_image_mime_type(back_image_base64, default="image/jpeg")
-        front_mime = _infer_image_mime_type_from_bytes(front_bytes, default=front_mime)
-        back_mime = _infer_image_mime_type_from_bytes(back_bytes, default=back_mime)
-
-        model_id = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
-        
-        def _extract_both(f_bytes, f_mime, b_bytes, b_mime):
-            genai.configure(api_key=_gemini_api_key())
-            model = genai.GenerativeModel(
-                model_id,
-                system_instruction=(
-                    "You are an expert food label OCR assistant for India. "
-                    "Extract all visible text from the provided front and back label images. "
-                    "Clearly section your output with '=== FRONT LABEL ===' and '=== BACK LABEL (INGREDIENTS / NUTRITION) ==='. "
-                    "Return ONLY the raw text (no analysis, no JSON, no markdown fences). "
-                    "Preserve line breaks as much as possible."
-                ),
-            )
-            prompt = "Extract all visible label text from these images. The first image is the front, the second is the back."
-            contents = [
-                prompt,
-                {"inline_data": {"mime_type": f_mime, "data": f_bytes}},
-                {"inline_data": {"mime_type": b_mime, "data": b_bytes}},
-            ]
-            generation_config = GenerationConfig(temperature=0.2)
-            resp = model.generate_content(contents, generation_config=generation_config)
-            return _response_text(resp)
-            
-        raw_text_extracted = await asyncio.to_thread(
-            _extract_both, front_bytes, front_mime, back_bytes, back_mime
-        )
-
-    osint_data = osint_context or {}
-    osint_data = dict(osint_data)
-    osint_data.setdefault("product_name", product_name)
-    osint_data.setdefault("retail_price_inr", retail_price)
+    front_bytes = _decode_image_base64(front_image_base64)
+    back_bytes = _decode_image_base64(back_image_base64)
+    front_mime = _infer_image_mime_type(front_image_base64, default="image/jpeg")
+    back_mime = _infer_image_mime_type(back_image_base64, default="image/jpeg")
+    front_mime = _infer_image_mime_type_from_bytes(front_bytes, default=front_mime)
+    back_mime = _infer_image_mime_type_from_bytes(back_bytes, default=back_mime)
 
     model_id = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    
+    def _extract_both(f_bytes, f_mime, b_bytes, b_mime):
+        genai.configure(api_key=_gemini_api_key())
+        model = genai.GenerativeModel(
+            model_id,
+            system_instruction=(
+                "You are an expert food label OCR assistant for India. "
+                "Extract all visible text from the provided front and back label images. "
+                "Clearly section your output with '=== FRONT LABEL ===' and '=== BACK LABEL (INGREDIENTS / NUTRITION) ==='. "
+                "Return ONLY the raw text (no analysis, no JSON, no markdown fences). "
+                "Preserve line breaks as much as possible."
+            ),
+        )
+        prompt = "Extract all visible label text from these images. The first image is the front, the second is the back."
+        contents = [
+            prompt,
+            {"inline_data": {"mime_type": f_mime, "data": f_bytes}},
+            {"inline_data": {"mime_type": b_mime, "data": b_bytes}},
+        ]
+        generation_config = GenerationConfig(temperature=0.2)
+        resp = model.generate_content(contents, generation_config=generation_config)
+        return _response_text(resp)
+
+    ocr_task = asyncio.to_thread(
+        _extract_both, front_bytes, front_mime, back_bytes, back_mime
+    )
+    
+    osint_task = get_osint_context(
+        product_name=product_name,
+        retail_price=retail_price,
+        location=location
+    )
+
+    raw_text_extracted, osint_data = await asyncio.gather(ocr_task, osint_task)
+
     report: ProductAnalysisResult = await asyncio.to_thread(
         _member3_analyze_product,
         raw_text_extracted,
