@@ -57,15 +57,15 @@ class ProductAnalysisResult(BaseModel):
         default=None,
         description="Full Jago Grahak Jago / consumer-forum style complaint when legalDraftAvailable is true.",
     )
-    healthier_alternatives: str | None = Field(
+    healthier_alternatives: list[str] = Field(
         alias="healthierAlternatives",
-        default=None,
-        description="A short, concise string listing healthier alternative product options.",
+        description="Short, concise list of healthier alternative product categories or generic options.",
+        default_factory=list,
     )
-    allergy_details: str | None = Field(
-        alias="allergyDetails",
-        default=None,
-        description="A short, concise string explicitly stating if the product can cause any allergy or have allergy effects.",
+    allergy_risks: list[str] = Field(
+        alias="allergyRisks",
+        description="Short, concise list of potential allergens or allergy effects from ingredients.",
+        default_factory=list,
     )
 
 
@@ -92,8 +92,14 @@ GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
         },
         "legalDraftAvailable": {"type": "boolean"},
         "legalDraftText": {"type": "string", "nullable": True},
-        "healthierAlternatives": {"type": "string", "nullable": True},
-        "allergyDetails": {"type": "string", "nullable": True},
+        "healthierAlternatives": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
+        "allergyRisks": {
+            "type": "array",
+            "items": {"type": "string"}
+        },
     },
     "required": [
         "trustScore",
@@ -102,7 +108,7 @@ GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
         "legalDraftAvailable",
         "legalDraftText",
         "healthierAlternatives",
-        "allergyDetails",
+        "allergyRisks",
     ],
 }
 
@@ -327,14 +333,16 @@ MANDATORY HUNT LIST:
 3. Economic adulteration (retail vs wholesale price gaps from OSINT).
 4. Fake organic/natural claims.
 5. OSINT: heat spoilage risks, FSSAI news recalls.
+6. Allergens or allergy effects (short & concise).
+7. Healthier alternative product options (short & concise).
 
 OUTPUT JSON ONLY matching the schema (No markdown fences):
 - trustScore: 0-100 float.
 - overallVerdict: 2-3 sentences max.
 - flags: Issues found with severity/evidence.
+- healthierAlternatives: Array of short, concise healthier product options.
+- allergyRisks: Array of short, concise allergy details or effects.
 - legalDraftAvailable / legalDraftText: Jago Grahak Jago format complaint IF actionable deception exists; else false/null.
-- healthierAlternatives: Ensure it is a VERY SHORT AND CONCISE string of healthier product options to consider instead of this.
-- allergyDetails: Ensure it is a VERY SHORT AND CONCISE string stating if the product can cause any allergy or have an allergy effect.
 If OFF ontology is in JSON, use it to map ingredient synonyms & UPF groups.
 
 TEXT: {raw_text}

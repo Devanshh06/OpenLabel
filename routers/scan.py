@@ -300,8 +300,6 @@ async def scan_link(
         "fssaiNumber": fssai_number,
         "legalDraftAvailable": report.legal_draft_available,
         "legalDraftText": report.legal_draft_text,
-        "healthierAlternatives": report.healthier_alternatives,
-        "allergyDetails": report.allergy_details,
         "sourceUrl": request.url,
     }
     _store_scan_in_supabase(
