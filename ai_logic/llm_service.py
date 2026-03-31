@@ -37,15 +37,20 @@ class ProductAnalysisResult(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    is_non_edible: bool = Field(
+        alias="isNonEdible",
+        default=False,
+        description="True if the product is NOT a food/edible/beverage item (e.g. electronics, clothing, cosmetics).",
+    )
     trust_score: float = Field(
         alias="trustScore",
         ge=0.0,
         le=100.0,
-        description="0–100; lower if splitting, UPF, economic adulteration, or fake organic risk is high.",
+        description="0–100; lower if splitting, UPF, economic adulteration, or fake organic risk is high. 0 if non-edible.",
     )
     overall_verdict: str = Field(
         alias="overallVerdict",
-        description="2–4 sentences: balanced expert view for a lay consumer.",
+        description="2–4 sentences: balanced expert view for a lay consumer. If non-edible, state clearly.",
     )
     flags: list[FlagItem]
     legal_draft_available: bool = Field(
@@ -74,6 +79,7 @@ class ProductAnalysisResult(BaseModel):
 GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "isNonEdible": {"type": "boolean"},
         "trustScore": {"type": "number"},
         "overallVerdict": {"type": "string"},
         "flags": {
@@ -102,6 +108,7 @@ GEMINI_PRODUCT_ANALYSIS_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
+        "isNonEdible",
         "trustScore",
         "overallVerdict",
         "flags",
@@ -327,7 +334,22 @@ def _enrich_ingredients_with_off(
 
 
 MASTER_SYSTEM_PROMPT_TEMPLATE = """You are an Indian food safety/legal expert. Analyze OCR text + OSINT JSON to protect against deception.
-MANDATORY HUNT LIST:
+
+CRITICAL FIRST CHECK — NON-EDIBLE PRODUCT DETECTION:
+Before any food analysis, determine if the product is a food/edible/beverage item.
+If the product is clearly NON-EDIBLE (e.g. electronics, clothing, cosmetics, household items, toys, stationery, 
+furniture, appliances, mobile phones, laptops, accessories, detergent, soap, shampoo, or any non-food item):
+  - Set "isNonEdible": true
+  - Set "trustScore": 0
+  - Set "overallVerdict" to: "This product is not a food or edible item. OpenLabel only analyzes food products, beverages, and consumables. The [detected product type] cannot be evaluated for food safety."
+  - Set "flags": one flag with code "NON_EDIBLE_PRODUCT", title "Not a Food Product", severity "high", evidence "[quote the product name/type detected]", rationale "OpenLabel is designed for food safety analysis under FSSAI norms. Non-edible products cannot be evaluated for ingredient safety, nutritional value, or food fraud."
+  - Set "legalDraftAvailable": false, "legalDraftText": null
+  - Set "healthierAlternatives": [], "allergyRisks": []
+  - Return immediately; do NOT attempt food analysis.
+
+If the product IS a food/edible/beverage item, set "isNonEdible": false and proceed with the full analysis below.
+
+MANDATORY HUNT LIST (food products only):
 1. Split sugars/grains (e.g., maltodextrin + invert sugar).
 2. UPF markers (emulsifiers, long additive lists).
 3. Economic adulteration (retail vs wholesale price gaps from OSINT).
@@ -337,7 +359,8 @@ MANDATORY HUNT LIST:
 7. Healthier alternative product options (short & concise).
 
 OUTPUT JSON ONLY matching the schema (No markdown fences):
-- trustScore: 0-100 float.
+- isNonEdible: boolean (true if NOT a food product, false otherwise).
+- trustScore: 0-100 float. 0 if non-edible.
 - overallVerdict: 2-3 sentences max.
 - flags: Issues found with severity/evidence.
 - healthierAlternatives: Array of short, concise healthier product options.

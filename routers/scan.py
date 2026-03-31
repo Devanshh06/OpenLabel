@@ -146,6 +146,7 @@ async def scan_image(
         "trustScore": report.trust_score,
         "overallVerdict": report.overall_verdict,
         "productName": product_name,
+        "isNonEdible": report.is_non_edible,
         "flags": [f.model_dump() for f in flags],
         "upfScore": None,
         "fssaiNumber": fssai_number,
@@ -169,6 +170,7 @@ async def scan_image(
     return ScanResponse(
         scan_id=scan_id,
         product_name=product_name,
+        is_non_edible=report.is_non_edible,
         trust_score=report.trust_score,
         trust_level=trust_level,
         overall_verdict=report.overall_verdict,
@@ -219,6 +221,7 @@ async def scan_dual_image(
         "trustScore": report.trust_score,
         "overallVerdict": report.overall_verdict,
         "productName": product_name,
+        "isNonEdible": report.is_non_edible,
         "flags": [f.model_dump() for f in flags],
         "upfScore": None,
         "fssaiNumber": fssai_number,
@@ -242,6 +245,7 @@ async def scan_dual_image(
     return ScanResponse(
         scan_id=scan_id,
         product_name=product_name,
+        is_non_edible=report.is_non_edible,
         trust_score=report.trust_score,
         trust_level=trust_level,
         overall_verdict=report.overall_verdict,
@@ -303,6 +307,7 @@ async def scan_link(
         "trustScore": report.trust_score,
         "overallVerdict": report.overall_verdict,
         "productName": product_name,
+        "isNonEdible": report.is_non_edible,
         "flags": [f.model_dump() for f in flags],
         "upfScore": None,
         "fssaiNumber": fssai_number,
@@ -327,6 +332,7 @@ async def scan_link(
     return ScanResponse(
         scan_id=scan_id,
         product_name=product_name,
+        is_non_edible=report.is_non_edible,
         trust_score=report.trust_score,
         trust_level=trust_level,
         overall_verdict=report.overall_verdict,

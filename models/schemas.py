@@ -53,6 +53,7 @@ class ScanResponse(BaseModel):
     """Response body for scan endpoints."""
     scan_id: str = Field(..., description="Unique ID for this scan record.")
     product_name: Optional[str] = Field(None, description="Detected or provided product name.")
+    is_non_edible: bool = Field(False, description="True if product is not a food/edible item.")
     trust_score: float = Field(..., ge=0.0, le=100.0, description="0–100 trust score.")
     trust_level: Literal["RED", "YELLOW", "GREEN"] = Field(..., description="Derived trust level (for backward compatibility).")
     overall_verdict: str = Field(..., description="Short summary of the forensic findings.")
