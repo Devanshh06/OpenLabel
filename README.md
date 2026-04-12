@@ -1,4 +1,4 @@
-# 🛡️ OpenLabel — Engine Room (Member 2 Backend)
+# 🛡️ OpenLabel — Engine Room (Member 2 and 3 Backend)
 
 > **Consumer OSINT Backend** — FastAPI server powering the OpenLabel food label intelligence platform.
 
