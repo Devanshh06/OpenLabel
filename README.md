@@ -53,14 +53,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Environment Variables
-```bash
-# Copy the template
-copy .env.example .env   # Windows
-cp .env.example .env     # macOS/Linux
 
-# Edit .env with your actual values
-```
 
 Required variables:
 | Variable | Description |
@@ -194,21 +187,8 @@ OpenLabel/
 │
 └── data/
     └── wholesale_prices.json # Commodity reference prices
-```
 
----
 
-## 🔗 Integration Notes
-
-### For Member 1 (Flutter App)
-- Send images as **base64-encoded JPEG/PNG** in the request body
-- Use Supabase Auth to get the JWT token, pass in `Authorization: Bearer <token>` header
-- Scan endpoints work **without auth** too (anonymous scans), but report history needs auth
-
-### For Member 3 (AI Prompts)
-- The system prompt is embedded in `models/ai_schemas.py`
-- Gemini returns **structured JSON** matching the `OpenLabelReport` schema
-- To modify AI behavior, update `TECH_JUSTICE_SYSTEM_PROMPT` in `ai_schemas.py`
 
 ---
 
